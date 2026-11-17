@@ -21,18 +21,25 @@ jobs:
       run: |
         git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
 
-    - name: Fix DTC yylloc, Python DrvGen & Disable Werror
+    - name: Fix DTC yylloc, DrvGen & Disable Werror
       run: |
         cd kernel
-        # 1. Perbaiki yylloc di file DTC compiler untuk GCC modern
+        # 1. Perbaiki yylloc di file DTC compiler
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
         
-        # 2. Ubah sintaks print Python 2 di DrvGen.py agar kompatibel dengan Python 3
-        sed -i 's/print /print(/g' tools/dct/DrvGen.py || true
+        # 2. Perbaiki DrvGen.py dengan membungkus print secara aman menggunakan python3
+        python3 -c '
+        with open("tools/dct/DrvGen.py", "r") as f:
+            code = f.read()
+        code = code.replace("print \x27\x27\x27", "print(\x27\x27\x27").replace("\x27\x27\x27\n", "\x27\x27\x27)\n")
+        with open("tools/dct/DrvGen.py", "w") as f:
+            f.write(code)
+        ' || true
 
-        # 3. Matikan Werror secara global di Makefile utama agar warning tidak menjadi error fatal
+        # 3. Matikan Werror dan tambahkan pengabaian array-compare langsung ke Makefile
         sed -i 's/-Werror//g' Makefile || true
+        echo 'KBUILD_CFLAGS += -Wno-array-compare -Wno-error=array-compare' >> Makefile
 
     - name: Setup Toolchain & Compile Kernel
       run: |
@@ -40,13 +47,17 @@ jobs:
         export ARCH=arm64
         export SUBARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        export HOSTCFLAGS="-fcommon"
         
-        # Buat konfigurasi default untuk perangkat dandelion
+        # Buat konfigurasi default
         make dandelion_defconfig
         
-        # Mulai proses kompilasi dengan mengabaikan sisa warning Werror
-        make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-Wno-array-compare -Wno-error=array-compare" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-Wno-array-compare -Wno-error=array-compare" Image
+        # Matikan CC_STACKPROTECTOR_STRONG yang gagal dideteksi Makefile
+        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
+        ./scripts/config --enable CONFIG_CC_STACKPROTECTOR_REGULAR
+        make olddefconfig
+        
+        # Mulai proses kompilasi tanpa menimpa KCFLAGS lewat argumen CLI
+        make -j$(nproc) HOSTCFLAGS="-fcommon" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" Image
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
