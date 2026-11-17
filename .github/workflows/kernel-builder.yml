@@ -30,7 +30,7 @@ jobs:
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped
         
-        # 2. Perbaiki sintaks DrvGen.py dengan heredoc yang terindentasi rapi
+        # 2. Perbaiki sintaks print yang rusak secara spesifik di DrvGen.py
         cat << 'EOF' > fix_drvgen.py
         import re
 
@@ -38,6 +38,9 @@ jobs:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
+        # Tangani print statement bermasalah seperti print(''') atau print pernyataan lama
+        content = content.replace("print('''", "print(\"\"\"")
+        content = content.replace("print('''')","print(\"\")")
         content = re.sub(r'\bprint\s+([^\(\n]+)', r'print(\1)', content)
 
         with open(path, "w", encoding="utf-8") as f:
