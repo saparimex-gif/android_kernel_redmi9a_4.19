@@ -19,7 +19,7 @@ jobs:
 
     - name: Clone Kernel Source Xiaomi MT6765
       run: |
-        git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-p-oss --depth=1 kernel
+        git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
 
     - name: Setup Toolchain & Compile Kernel
       run: |
@@ -29,7 +29,6 @@ jobs:
         export CROSS_COMPILE=aarch64-linux-gnu-
         
         # Buat konfigurasi default untuk perangkat dandelion
-        make 
         make dandelion_defconfig || make mediatek_defconfig || make defconfig
         
         # Mulai proses kompilasi
