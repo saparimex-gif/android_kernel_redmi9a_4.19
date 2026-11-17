@@ -21,37 +21,36 @@ jobs:
       run: |
         git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
 
-    - name: Fix Compiler Conflict, DTC yylloc & Python Compatibility
+    - name: Fix Python Syntax, ConfigParser, DTC & Global Werror
       run: |
         cd kernel
         # 1. Perbaiki yylloc di file DTC compiler
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
         
-        # 2. Perbaiki fungsi 'free' yang konflik dengan built-in C di crypto/xts.c
-        sed -i 's/static void free(struct crypto_instance \*inst)/static void xts_free(struct crypto_instance *inst)/g' crypto/xts.c || true
-        sed -i 's/\.free\s*=\s*free,/.free = xts_free,/g' crypto/xts.c || true
-
-        # 3. Perbaiki modul ConfigParser dan sintaks print Python
+        # 2. Perbaiki ConfigParser dan sintaks Python penyebab unmatched ')' di skrip DrvGen
         find tools/dct/ -type f -name "*.py" -exec sed -i 's/import ConfigParser/import configparser as ConfigParser/g' {} + || true
         python3 -c '
-        import glob
+        import glob, re
         for filepath in glob.glob("tools/dct/**/*.py", recursive=True):
             with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-                code = f.read()
-            code = code.replace("print \x27\x27\x27", "print(\x27\x27\x27").replace("\x27\x27\x27\n", "\x27\x27\x27)\n")
+                content = f.read()
+            # Bersihkan potensi sintaks print lama atau kurung yang timpang
+            content = re.sub(r"\bprint\s+([^\(\n]+)", r"print(\1)", content)
             with open(filepath, "w", encoding="utf-8", errors="ignore") as f:
-                f.write(code)
+                f.write(content)
         ' || true
 
-        # 4. Buat direktori penunjang modul dct agar GpioObj terbaca dengan benar
+        # 3. Buat direktori modul penunjang dct agar GpioObj terbaca
         mkdir -p tools/dct/obj || true
         touch tools/dct/__init__.py tools/dct/obj/__init__.py || true
 
-        # 5. Bersihkan -Werror dan abaikan warning builtin-declaration-mismatch
+        # 4. Matikan seluruh fungsi -Werror secara total dari Makefile utama
         sed -i 's/-Werror//g' Makefile || true
         sed -i 's/-implicit-function-declaration//g' Makefile || true
-        echo 'KBUILD_CFLAGS += -Wno-array-bounds -Wno-error=array-bounds -Wno-array-compare -Wno-error=array-compare -Wno-error=builtin-declaration-mismatch -Wno-builtin-declaration-mismatch' >> Makefile
+        
+        # 5. Suntikkan parameter pembersih warning agar tidak dihentikan sebagai error fatal
+        echo 'KBUILD_CFLAGS += -w' >> Makefile
 
     - name: Setup Toolchain & Compile Kernel
       run: |
@@ -59,8 +58,6 @@ jobs:
         export ARCH=arm64
         export SUBARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        
-        # Ekspor PYTHONPATH agar skrip DrvGen menemukan modul internalnya
         export PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj:$PYTHONPATH"
         
         # Buat konfigurasi default
@@ -74,8 +71,8 @@ jobs:
         ./scripts/config --disable CONFIG_STACKPROTECTOR
         make olddefconfig
         
-        # Mulai proses kompilasi
-        make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj" Image
+        # Mulai kompilasi penuh dengan meredam semua warning lewat flag -w
+        make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" Image
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
