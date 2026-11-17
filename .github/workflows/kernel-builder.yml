@@ -58,6 +58,14 @@ jobs:
         # Buat konfigurasi default
         make dandelion_defconfig
         
+        # Nonaktifkan opsi stack protector yang tidak didukung kompiler modern
+        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR
+        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_NONE
+        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_REGULAR
+        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
+        ./scripts/config --disable CONFIG_STACKPROTECTOR
+        make olddefconfig
+        
         # Mulai proses kompilasi dengan menyertakan PYTHONPATH global
         make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj" Image
 
