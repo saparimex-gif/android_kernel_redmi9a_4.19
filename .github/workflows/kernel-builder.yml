@@ -15,21 +15,21 @@ jobs:
     - name: Setup Environment & Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache flex g++-aarch64-linux-gnu gcc-aarch64-linux-gnu git libssl-dev libncurses5-dev wget python-is-python3
+        sudo apt-get install -y bc bison build-essential ccache flex g++-aarch64-linux-gnu gcc-aarch64-linux-gnu git libssl-dev libncurses5-dev wget python3
 
     - name: Clone Kernel Source Xiaomi MT6765
       run: |
         git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
 
-    - name: Fix DTC yylloc & Python 2 DrvGen
+    - name: Fix DTC yylloc & Python DrvGen
       run: |
         cd kernel
-        # 1. Perbaiki yylloc di file sumber lexer (.l dan _shipped)
+        # 1. Perbaiki yylloc di file DTC compiler untuk GCC modern
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
         
-        # 2. Konversi otomatis DrvGen.py dari Python 2 ke Python 3 menggunakan 2to3
-        2to3 -w tools/dct/DrvGen.py || true
+        # 2. Ubah sintaks print Python 2 di DrvGen.py agar kompatibel dengan Python 3
+        sed -i 's/print /print(/g' tools/dct/DrvGen.py || true
 
     - name: Setup Toolchain & Compile Kernel
       run: |
