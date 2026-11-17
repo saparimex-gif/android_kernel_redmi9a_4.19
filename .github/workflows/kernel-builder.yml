@@ -17,9 +17,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential ccache flex g++-aarch64-linux-gnu gcc-aarch64-linux-gnu git libssl-dev libncurses5-dev wget
 
-    - name: Clone Kernel Source 4.19 (LineageOS MT6765)
+    - name: Clone Kernel Source Xiaomi MT6765
       run: |
-        git clone https://github.com/LineageOS/android_kernel_xiaomi_mt6765.git --depth=1 -b lineage-20 kernel
+        git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-p-oss --depth=1 kernel
 
     - name: Setup Toolchain & Compile Kernel
       run: |
@@ -28,10 +28,11 @@ jobs:
         export SUBARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
         
-        # Buat konfigurasi default untuk MT6765
-        make mediatek_defconfig || make defconfig
+        # Buat konfigurasi default untuk perangkat dandelion
+        make 
+        make dandelion_defconfig || make mediatek_defconfig || make defconfig
         
-        # Mulai proses kompilasi menggunakan semua core server GitHub
+        # Mulai proses kompilasi
         make -j$(nproc) Image.gz-dtb || make -j$(nproc) Image
 
     - name: Upload Kernel Artifact
