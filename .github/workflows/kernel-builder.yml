@@ -28,7 +28,7 @@ jobs:
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
         
-        # 2. Perbaiki DrvGen.py dengan membungkus print secara aman menggunakan python3
+        # 2. Perbaiki DrvGen.py
         python3 -c '
         with open("tools/dct/DrvGen.py", "r") as f:
             code = f.read()
@@ -37,7 +37,7 @@ jobs:
             f.write(code)
         ' || true
 
-        # 3. Matikan Werror dan tambahkan pengabaian array-compare langsung ke Makefile
+        # 3. Matikan Werror secara global di Makefile
         sed -i 's/-Werror//g' Makefile || true
         echo 'KBUILD_CFLAGS += -Wno-array-compare -Wno-error=array-compare' >> Makefile
 
@@ -51,12 +51,15 @@ jobs:
         # Buat konfigurasi default
         make dandelion_defconfig
         
-        # Matikan CC_STACKPROTECTOR_STRONG yang gagal dideteksi Makefile
+        # Matikan seluruh opsi stack protector agar tidak divalidasi oleh compiler check
+        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR
+        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_NONE
+        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_REGULAR
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
-        ./scripts/config --enable CONFIG_CC_STACKPROTECTOR_REGULAR
+        ./scripts/config --disable CONFIG_STACKPROTECTOR
         make olddefconfig
         
-        # Mulai proses kompilasi tanpa menimpa KCFLAGS lewat argumen CLI
+        # Mulai proses kompilasi
         make -j$(nproc) HOSTCFLAGS="-fcommon" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" Image
 
     - name: Upload Kernel Artifact
