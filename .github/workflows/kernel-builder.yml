@@ -19,7 +19,9 @@ jobs:
 
     - name: Clone Kernel Source 4.19 (Xiaomi MT6765)
       run: |
-        git clone https://github.com/xiaomi-mt6765-dev/android_kernel_xiaomi_mt6765.git -b lineage-20 kernel
+        git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/xiaomi-mt6765-dev/android_kernel_xiaomi_mt6765.git kernel
+        cd kernel
+        git checkout lineage-20
 
     - name: Setup Toolchain & Compile Kernel
       run: |
