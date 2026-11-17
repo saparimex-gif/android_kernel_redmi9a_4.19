@@ -23,47 +23,49 @@ jobs:
 
     - name: Fix DrvGen Python Syntax, Missing Header & Warnings
       run: |
+        set -euxo pipefail
         cd kernel
-        # 1. Perbaiki yylloc di file DTC compiler
-        sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
-        sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
         
-        # 2. Perbaiki total sintaks baris print bermasalah di DrvGen.py
-        python3 -c '
+        # 1. Perbaiki yylloc di file DTC compiler
+        sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l
+        sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped
+        
+        # 2. Perbaiki sintaks DrvGen.py dengan heredoc yang terindentasi rapi
+        cat << 'EOF' > fix_drvgen.py
+        import re
+
         path = "tools/dct/DrvGen.py"
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-        new_lines = []
-        for line in lines:
-            if "print" in line and "(" in line and ")" not in line:
-                line = line.replace("print(", "print(""").replace(")", """)\n')
-            new_lines.append(line)
+            content = f.read()
+
+        content = re.sub(r'\bprint\s+([^\(\n]+)', r'print(\1)', content)
+
         with open(path, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
-        ' || true
+            f.write(content)
+        EOF
+        
+        python3 fix_drvgen.py
+        python3 -m py_compile tools/dct/DrvGen.py
 
-        # Sediakan fallback pengganti jika baris spesifik print(''') masih tertinggal
-        sed -i "s/print('''/print('''/g" tools/dct/DrvGen.py || true
-        sed -i "s/print('\\\'\\\'\\\'')/print('')/g" tools/dct/DrvGen.py || true
-
-        # 3. Buat file header helio-dvfsrc.h tiruan / arahkan path inklusi agar tidak missing file
+        # 3. Sediakan header helio-dvfsrc.h
         mkdir -p drivers/devfreq
         if [ ! -f "drivers/devfreq/helio-dvfsrc.h" ]; then
             touch drivers/devfreq/helio-dvfsrc.h
         fi
 
         # 4. Bersihkan -Werror dan matikan warning ketat
-        sed -i 's/-Werror//g' Makefile || true
+        sed -i 's/-Werror//g' Makefile
         echo 'KBUILD_CFLAGS += -w' >> Makefile
-        echo 'CFLAGS_helio-dvfsrc-opp.o += -I$(srctree)/drivers/devfreq' >> drivers/devfreq/Makefile || true
+        echo 'CFLAGS_helio-dvfsrc-opp.o += -I$(srctree)/drivers/devfreq' >> drivers/devfreq/Makefile
 
     - name: Setup Toolchain & Compile Kernel
       run: |
+        set -euxo pipefail
         cd kernel
         export ARCH=arm64
         export SUBARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        export PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj:$PYTHONPATH"
+        export PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj:${PYTHONPATH:-}"
         
         # Buat konfigurasi default
         make dandelion_defconfig
