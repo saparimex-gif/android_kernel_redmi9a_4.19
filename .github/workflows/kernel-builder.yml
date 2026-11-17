@@ -21,7 +21,7 @@ jobs:
       run: |
         git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
 
-    - name: Fix Compiler Flags, DTC yylloc & Python DrvGen
+    - name: Fix DTC yylloc, Python Path & Compiler Warnings
       run: |
         cd kernel
         # 1. Perbaiki yylloc di file DTC compiler
@@ -37,10 +37,13 @@ jobs:
             f.write(code)
         ' || true
 
-        # 3. Hapus flag -implicit-function-declaration yang salah format di Makefile utama
-        sed -i 's/-implicit-function-declaration/-Wimplicit-function-declaration/g' Makefile || true
+        # 3. Buat direktori penunjang modul dct agar GpioObj terbaca dengan benar
+        mkdir -p tools/dct/obj || true
+        touch tools/dct/__init__.py tools/dct/obj/__init__.py || true
+
+        # 4. Matikan seluruh jenis Werror secara agresif dan abaikan array-bounds serta implicit-function-declaration
         sed -i 's/-Werror//g' Makefile || true
-        echo 'KBUILD_CFLAGS += -Wno-array-compare -Wno-error=array-compare -Wno-error=implicit-function-declaration' >> Makefile
+        echo 'KBUILD_CFLAGS += -Wno-array-bounds -Wno-error=array-bounds -Wno-array-compare -Wno-error=array-compare -Wno-error=implicit-function-declaration -w' >> Makefile
 
     - name: Setup Toolchain & Compile Kernel
       run: |
@@ -49,14 +52,14 @@ jobs:
         export SUBARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
         
-        # Tambahkan path direktori tools/dct agar Python menemukan modul GpioObj
-        export PYTHONPATH=$PYTHONPATH:$(pwd)/tools/dct
+        # Ekspor PYTHONPATH agar skrip DrvGen menemukan modul internalnya
+        export PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj:$PYTHONPATH"
         
         # Buat konfigurasi default
         make dandelion_defconfig
         
-        # Mulai proses kompilasi
-        make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH=$(pwd)/tools/dct Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH=$(pwd)/tools/dct Image
+        # Mulai proses kompilasi dengan menyertakan PYTHONPATH global
+        make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj" Image
 
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
