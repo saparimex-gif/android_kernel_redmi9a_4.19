@@ -1,0 +1,41 @@
+name: Build Redmi 9A Kernel 4.19
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+  
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v3
+
+    - name: Setup Environment & Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache flex g++-aarch64-linux-gnu gcc-aarch64-linux-gnu git libssl-dev libncurses5-dev wget
+
+    - name: Clone Kernel Source 4.19 (Xiaomi MT6765)
+      run: |
+        git clone https://github.com/xiaomi-mt6765-dev/android_kernel_xiaomi_mt6765.git -b lineage-20 kernel
+
+    - name: Setup Toolchain & Compile Kernel
+      run: |
+        cd kernel
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        
+        # Buat konfigurasi default untuk MT6765
+        make mediatek_defconfig || make defconfig
+        
+        # Mulai proses kompilasi menggunakan semua core server GitHub
+        make -j$(nproc) Image.gz-dtb || make -j$(nproc) Image
+
+    - name: Upload Kernel Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: Redmi-9A-Kernel-Image
+        path: kernel/arch/arm64/boot/Image*
