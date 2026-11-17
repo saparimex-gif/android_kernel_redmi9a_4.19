@@ -21,14 +21,18 @@ jobs:
       run: |
         git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
 
-    - name: Fix Compiler Flags, DTC yylloc & Python Compatibility
+    - name: Fix Compiler Conflict, DTC yylloc & Python Compatibility
       run: |
         cd kernel
         # 1. Perbaiki yylloc di file DTC compiler
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
         
-        # 2. Perbaiki sintaks print & modul ConfigParser (ubah ke configparser agar kompatibel dengan Python 3)
+        # 2. Perbaiki fungsi 'free' yang konflik dengan built-in C di crypto/xts.c
+        sed -i 's/static void free(struct crypto_instance \*inst)/static void xts_free(struct crypto_instance *inst)/g' crypto/xts.c || true
+        sed -i 's/\.free\s*=\s*free,/.free = xts_free,/g' crypto/xts.c || true
+
+        # 3. Perbaiki modul ConfigParser dan sintaks print Python
         find tools/dct/ -type f -name "*.py" -exec sed -i 's/import ConfigParser/import configparser as ConfigParser/g' {} + || true
         python3 -c '
         import glob
@@ -40,14 +44,14 @@ jobs:
                 f.write(code)
         ' || true
 
-        # 3. Buat direktori penunjang modul dct agar GpioObj terbaca dengan benar
+        # 4. Buat direktori penunjang modul dct agar GpioObj terbaca dengan benar
         mkdir -p tools/dct/obj || true
         touch tools/dct/__init__.py tools/dct/obj/__init__.py || true
 
-        # 4. Bersihkan -Werror dan pastikan tidak ada flag -implicit-function-declaration yang salah format
+        # 5. Bersihkan -Werror dan abaikan warning builtin-declaration-mismatch
         sed -i 's/-Werror//g' Makefile || true
         sed -i 's/-implicit-function-declaration//g' Makefile || true
-        echo 'KBUILD_CFLAGS += -Wno-array-bounds -Wno-error=array-bounds -Wno-array-compare -Wno-error=array-compare -Wno-error=implicit-function-declaration' >> Makefile
+        echo 'KBUILD_CFLAGS += -Wno-array-bounds -Wno-error=array-bounds -Wno-array-compare -Wno-error=array-compare -Wno-error=builtin-declaration-mismatch -Wno-builtin-declaration-mismatch' >> Makefile
 
     - name: Setup Toolchain & Compile Kernel
       run: |
@@ -62,7 +66,7 @@ jobs:
         # Buat konfigurasi default
         make dandelion_defconfig
         
-        # Nonaktifkan opsi stack protector yang tidak didukung compiler modern agar lolos prepare-compiler-check
+        # Nonaktifkan opsi stack protector agar lolos prepare-compiler-check
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_NONE
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_REGULAR
