@@ -17,9 +17,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential ccache flex g++-aarch64-linux-gnu gcc-aarch64-linux-gnu git libssl-dev libncurses5-dev wget
 
-    - name: Clone Kernel Source 4.19 (MT6765 Public)
+    - name: Clone Kernel Source 4.19 (LineageOS MT6765)
       run: |
-        git clone https://github.com/kernel-build-bot/android_kernel_xiaomi_mt6765.git --depth=1 kernel
+        git clone https://github.com/LineageOS/android_kernel_xiaomi_mt6765.git --depth=1 -b lineage-20 kernel
 
     - name: Setup Toolchain & Compile Kernel
       run: |
