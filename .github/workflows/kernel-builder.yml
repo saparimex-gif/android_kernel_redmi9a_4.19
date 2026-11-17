@@ -21,29 +21,33 @@ jobs:
       run: |
         git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
 
-    - name: Fix DTC yylloc, Python Path & Compiler Warnings
+    - name: Fix Compiler Flags, DTC yylloc & Python Compatibility
       run: |
         cd kernel
         # 1. Perbaiki yylloc di file DTC compiler
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l || true
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
         
-        # 2. Perbaiki sintaks print Python di DrvGen.py
+        # 2. Perbaiki sintaks print & modul ConfigParser (ubah ke configparser agar kompatibel dengan Python 3)
+        find tools/dct/ -type f -name "*.py" -exec sed -i 's/import ConfigParser/import configparser as ConfigParser/g' {} + || true
         python3 -c '
-        with open("tools/dct/DrvGen.py", "r") as f:
-            code = f.read()
-        code = code.replace("print \x27\x27\x27", "print(\x27\x27\x27").replace("\x27\x27\x27\n", "\x27\x27\x27)\n")
-        with open("tools/dct/DrvGen.py", "w") as f:
-            f.write(code)
+        import glob
+        for filepath in glob.glob("tools/dct/**/*.py", recursive=True):
+            with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                code = f.read()
+            code = code.replace("print \x27\x27\x27", "print(\x27\x27\x27").replace("\x27\x27\x27\n", "\x27\x27\x27)\n")
+            with open(filepath, "w", encoding="utf-8", errors="ignore") as f:
+                f.write(code)
         ' || true
 
         # 3. Buat direktori penunjang modul dct agar GpioObj terbaca dengan benar
         mkdir -p tools/dct/obj || true
         touch tools/dct/__init__.py tools/dct/obj/__init__.py || true
 
-        # 4. Matikan seluruh jenis Werror secara agresif dan abaikan array-bounds serta implicit-function-declaration
+        # 4. Bersihkan -Werror dan pastikan tidak ada flag -implicit-function-declaration yang salah format
         sed -i 's/-Werror//g' Makefile || true
-        echo 'KBUILD_CFLAGS += -Wno-array-bounds -Wno-error=array-bounds -Wno-array-compare -Wno-error=array-compare -Wno-error=implicit-function-declaration -w' >> Makefile
+        sed -i 's/-implicit-function-declaration//g' Makefile || true
+        echo 'KBUILD_CFLAGS += -Wno-array-bounds -Wno-error=array-bounds -Wno-array-compare -Wno-error=array-compare -Wno-error=implicit-function-declaration' >> Makefile
 
     - name: Setup Toolchain & Compile Kernel
       run: |
@@ -58,7 +62,7 @@ jobs:
         # Buat konfigurasi default
         make dandelion_defconfig
         
-        # Nonaktifkan opsi stack protector yang tidak didukung kompiler modern
+        # Nonaktifkan opsi stack protector yang tidak didukung compiler modern agar lolos prepare-compiler-check
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_NONE
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_REGULAR
@@ -66,7 +70,7 @@ jobs:
         ./scripts/config --disable CONFIG_STACKPROTECTOR
         make olddefconfig
         
-        # Mulai proses kompilasi dengan menyertakan PYTHONPATH global
+        # Mulai proses kompilasi
         make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj" Image
 
     - name: Upload Kernel Artifact
