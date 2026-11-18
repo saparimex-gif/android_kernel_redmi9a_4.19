@@ -8,85 +8,125 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Source Code
-      uses: actions/checkout@v4
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
-    - name: Setup Environment & Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache flex g++-aarch64-linux-gnu gcc-aarch64-linux-gnu git libssl-dev libncurses5-dev wget python3
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-    - name: Clone Kernel Source Xiaomi MT6765
-      run: |
-        git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
+      - name: Setup Environment & Dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache flex \
+            g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
+            git libssl-dev libncurses5-dev wget python3
 
-    - name: Fix build compatibility
-      run: |
-        set -euxo pipefail
-        cd kernel
+      - name: Clone Kernel Source Xiaomi MT6765
+        run: |
+          git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
+            -b dandelion-q-oss --depth=1 kernel
 
-        # Old DTC versions declare yylloc without extern, while newer GCC requires it.
-        sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l
-        sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped
+      - name: Fix build compatibility
+        run: |
+          set -euxo pipefail
+          cd kernel
 
-        # Convert the DrvGen tool helpers from Python 2 print syntax to Python 3 syntax.
-        cat > fix_python.py <<'PY'
-        from pathlib import Path
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped
 
-        path = Path("tools/dct/DrvGen.py")
-        text = path.read_text(encoding="utf-8", errors="replace")
+          cat > fix_python.py <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          import traceback
 
-        # Handle this known old-style print block, preserving the banner text.
-        text = text.replace("print '''", 'print("""')
-        text = text.replace("\n'''", '\n"""')
+          dct_dir = Path("tools/dct")
+          drvgen = dct_dir / "DrvGen.py"
 
-        path.write_text(text, encoding="utf-8")
+          if drvgen.exists():
+              text = drvgen.read_text(encoding="utf-8", errors="replace")
 
-        # Convert any remaining Python 2 print statements in the tools/dct directory.
-        import lib2to3.refactor
+              # Fix the old triple-quoted print banner.
+              text = text.replace("print '''", 'print("""')
+              text = text.replace("\n'''", '\n"""')
 
-        fixer = lib2to3.refactor.RefactoringTool(["lib2to3.fixes.fix_print"])
-        for py in Path("tools/dct").rglob("*.py"):
-            source = py.read_text(encoding="utf-8", errors="replace")
-            try:
-                converted = str(fixer.refactor_string(source, str(py)))
-            except lib2to3.refactor.RefactoringError:
-                continue
-            py.write_text(converted, encoding="utf-8")
-        PY
+              # Convert Python 2 print statements.
+              text = re.sub(
+                  r"(?m)^(\s*)print\s+(.+)$",
+                  lambda m: m.group(1) + "print(" + m.group(2) + ")",
+                  text
+              )
 
-        python3 fix_python.py
-        python3 -m py_compile tools/dct/*.py tools/dct/*/*.py 2>/dev/null || python3 -m compileall -q tools/dct
+              drvgen.write_text(text, encoding="utf-8")
 
-        mkdir -p drivers/devfreq
-        touch -a drivers/devfreq/helio-dvfsrc.h
+          converted = 0
+          failed = []
 
-        sed -i 's/-Werror//g' Makefile
-        echo 'KBUILD_CFLAGS += -w' >> Makefile
-        echo 'CFLAGS_helio-dvfsrc-opp.o += -I$(srctree)/drivers/devfreq' >> drivers/devfreq/Makefile
+          for py_file in dct_dir.rglob("*.py"):
+              source = py_file.read_text(encoding="utf-8", errors="replace")
 
-    - name: Setup Toolchain & Compile Kernel
-      run: |
-        set -euxo pipefail
-        cd kernel
-        export ARCH=arm64
-        export SUBARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        export PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj:${PYTHONPATH:-}"
+              # Convert the remaining Python 2 print statements safely.
+              source = re.sub(
+                  r"(?m)^(\s*)print\s+([^(].*)$",
+                  lambda m: m.group(1) + "print(" + m.group(2) + ")",
+                  source
+              )
 
-        make dandelion_defconfig
+              # Python 2 exception syntax: except Exception, e:
+              source = re.sub(
+                  r"except\s+([A-Za-z_][\w.]*)\s*,\s*([A-Za-z_]\w*):",
+                  r"except \1 as \2:",
+                  source
+              )
 
-        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR
-        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_NONE
-        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_REGULAR
-        ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
-        ./scripts/config --disable CONFIG_STACKPROTECTOR
-        make olddefconfig
+              py_file.write_text(source, encoding="utf-8")
+              converted += 1
 
-        make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" Image
+          print(f"Processed {converted} Python files.")
 
-    - name: Upload Kernel Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Redmi-9A-Kernel-Image
-        path: kernel/arch/arm64/boot/Image*
+          # Report syntax errors, but do not stop the build here.
+          for py_file in dct_dir.rglob("*.py"):
+              compile(py_file.read_text(encoding="utf-8", errors="replace"),
+                      str(py_file), "exec")
+          PY
+
+          python3 fix_python.py
+
+          mkdir -p drivers/devfreq
+          touch -a drivers/devfreq/helio-dvfsrc.h
+
+          sed -i 's/-Werror//g' Makefile
+          echo 'KBUILD_CFLAGS += -w' >> Makefile
+          echo 'CFLAGS_helio-dvfsrc-opp.o += -I$(srctree)/drivers/devfreq' >> drivers/devfreq/Makefile
+
+      - name: Setup Toolchain & Compile Kernel
+        run: |
+          set -euxo pipefail
+          cd kernel
+
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj:${PYTHONPATH:-}"
+
+          make dandelion_defconfig
+          ./scripts/config --disable CONFIG_CC_STACKPROTECTOR
+          ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_NONE
+          ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_REGULAR
+          ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
+          ./scripts/config --disable CONFIG_STACKPROTECTOR
+          make olddefconfig
+
+          make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" \
+            Image.gz-dtb || \
+          make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" Image
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Redmi-9A-Kernel-Image
+          path: kernel/arch/arm64/boot/Image*
