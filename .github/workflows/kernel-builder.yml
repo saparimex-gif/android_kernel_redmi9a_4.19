@@ -5,9 +5,8 @@ on:
 
 jobs:
   build:
-  
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout Source Code
       uses: actions/checkout@v4
@@ -21,47 +20,47 @@ jobs:
       run: |
         git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b dandelion-q-oss --depth=1 kernel
 
-    - name: Fix DrvGen Python Syntax, Missing Header & Warnings
+    - name: Fix build compatibility
       run: |
         set -euxo pipefail
         cd kernel
-        
-        # 1. Perbaiki yylloc di file DTC compiler
+
+        # Old DTC versions declare yylloc without extern, while newer GCC requires it.
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l
         sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped
-        
-        # 2. Perbaiki total baris print(''') yang merusak DrvGen.py
-        cat << 'EOF' > fix_drvgen.py
-        import re
 
-        path = "tools/dct/DrvGen.py"
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        # Convert the DrvGen tool helpers from Python 2 print syntax to Python 3 syntax.
+        cat > fix_python.py <<'PY'
+        from pathlib import Path
 
-        # Tangani secara spesifik baris print yang rusak/kutip tidak seimbang
-        content = content.replace("print('''", "print(\"\"\"")
-        content = content.replace("print('''')","print(\"\")")
-        # Jika ada baris print kosong atau kutip ganjil di line 46, ubah menjadi print() yang valid
-        content = content.replace("print('''')", "print()")
-        content = re.sub(r'print\s*\(\s*\'\'\'\s*\)', 'print()', content)
-        
-        # Penanganan darurat jika baris 46 persis memuat print(''')
-        content = content.replace("print('''", "print('')")
+        path = Path("tools/dct/DrvGen.py")
+        text = path.read_text(encoding="utf-8", errors="replace")
 
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-        EOF
-        
-        python3 fix_drvgen.py
-        python3 -m py_compile tools/dct/DrvGen.py
+        # Handle this known old-style print block, preserving the banner text.
+        text = text.replace("print '''", 'print("""')
+        text = text.replace("\n'''", '\n"""')
 
-        # 3. Sediakan header helio-dvfsrc.h
+        path.write_text(text, encoding="utf-8")
+
+        # Convert any remaining Python 2 print statements in the tools/dct directory.
+        import lib2to3.refactor
+
+        fixer = lib2to3.refactor.RefactoringTool(["lib2to3.fixes.fix_print"])
+        for py in Path("tools/dct").rglob("*.py"):
+            source = py.read_text(encoding="utf-8", errors="replace")
+            try:
+                converted = str(fixer.refactor_string(source, str(py)))
+            except lib2to3.refactor.RefactoringError:
+                continue
+            py.write_text(converted, encoding="utf-8")
+        PY
+
+        python3 fix_python.py
+        python3 -m py_compile tools/dct/*.py tools/dct/*/*.py 2>/dev/null || python3 -m compileall -q tools/dct
+
         mkdir -p drivers/devfreq
-        if [ ! -f "drivers/devfreq/helio-dvfsrc.h" ]; then
-            touch drivers/devfreq/helio-dvfsrc.h
-        fi
+        touch -a drivers/devfreq/helio-dvfsrc.h
 
-        # 4. Bersihkan -Werror dan matikan warning ketat
         sed -i 's/-Werror//g' Makefile
         echo 'KBUILD_CFLAGS += -w' >> Makefile
         echo 'CFLAGS_helio-dvfsrc-opp.o += -I$(srctree)/drivers/devfreq' >> drivers/devfreq/Makefile
@@ -74,19 +73,16 @@ jobs:
         export SUBARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
         export PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj:${PYTHONPATH:-}"
-        
-        # Buat konfigurasi default
+
         make dandelion_defconfig
-        
-        # Nonaktifkan opsi stack protector agar lolos prepare-compiler-check
+
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_NONE
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_REGULAR
         ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
         ./scripts/config --disable CONFIG_STACKPROTECTOR
         make olddefconfig
-        
-        # Mulai proses kompilasi
+
         make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" Image.gz-dtb || make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" Image
 
     - name: Upload Kernel Artifact
