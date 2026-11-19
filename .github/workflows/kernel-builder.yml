@@ -52,11 +52,11 @@ jobs:
           cd kernel
           if [ -d "../clang/bin" ]; then
             export PATH="$(pwd)/../clang/bin:$PATH"
-            make -j$(nproc) O=out ARCH=$ARCH CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- $DEFCONFIG
-            make -j$(nproc) O=out ARCH=$ARCH CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+            make -j$(nproc) O=out ARCH=$ARCH CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option" $DEFCONFIG
+            make -j$(nproc) O=out ARCH=$ARCH CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option"
           else
-            make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- $DEFCONFIG
-            make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu-
+            make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option" $DEFCONFIG
+            make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option"
           fi
           ls -lh out/arch/arm64/boot/Image.lz4 out/arch/arm64/boot/Image
 
