@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
 
 env:
-  KERNEL_REPO: https://github.com/PEMILIK_REPO/android_kernel_xiaomi_mt6765.git
+  KERNEL_REPO: https://github.com/NAMA_PEMILIK_ASLI/NAMA_REPO_BLOSSOM_4_19.git
   KERNEL_BRANCH: lineage-20.0
   DEFCONFIG: blossom_defconfig
   ARCH: arm64
   SUBARCH: arm64
+
 
 jobs:
   build:
