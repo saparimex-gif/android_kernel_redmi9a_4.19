@@ -1,132 +1,70 @@
-name: Build Redmi 9A Kernel 4.19
+name: Build NetHunter Kernel Redmi 9A (LineageOS 20)
 
 on:
   workflow_dispatch:
 
+env:
+  KERNEL_REPO: https://github.com/LINEAGEOS_OR_DEV/android_kernel_xiaomi_mt6765.git
+  KERNEL_BRANCH: lineage-20.0
+  DEFCONFIG: dandelion_defconfig
+  ARCH: arm64
+  SUBARCH: arm64
+
 jobs:
   build:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Setup Environment & Dependencies
+      - name: Install build dependencies
         run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache flex \
-            g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
-            git libssl-dev libncurses5-dev wget python3
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            git ccache bc bison flex libssl-dev libelf-dev \
+            zip curl wget unzip python3 make gcc-aarch64-linux-gnu clang lld
 
-      - name: Clone Kernel Source Xiaomi MT6765
+      - name: Clone kernel source and toolchain
         run: |
-          git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
-            -b dandelion-q-oss --depth=1 kernel
+          git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang || true
 
-      - name: Fix build compatibility
+      - name: Configure NetHunter options
         run: |
-          set -euxo pipefail
           cd kernel
+          cat << 'EOF' >> arch/arm64/configs/$DEFCONFIG
+          CONFIG_USB_CONFIGFS_F_HID=y
+          CONFIG_BT=y
+          CONFIG_BT_BREDR=y
+          CONFIG_BT_LE=y
+          CONFIG_BT_HCIVHCI=y
+          CONFIG_BT_HCIBTUSB=y
+          CONFIG_BT_RFCOMM=y
+          CONFIG_BT_RFCOMM_TTY=y
+          CONFIG_BT_BNEP=y
+          CONFIG_BT_BNEP_MC_FILTER=y
+          CONFIG_BT_BNEP_PROTO_FILTER=y
+          CONFIG_BT_HIDP=y
+          CONFIG_CFG80211=y
+          CONFIG_MAC80211=y
+          CONFIG_MAC80211_MESH=y
+          EOF
 
-          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.l
-          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped
-
-          cat > fix_python.py <<'PY'
-          from pathlib import Path
-          import re
-          import sys
-          import traceback
-
-          dct_dir = Path("tools/dct")
-          drvgen = dct_dir / "DrvGen.py"
-
-          if drvgen.exists():
-              text = drvgen.read_text(encoding="utf-8", errors="replace")
-
-              # Fix the old triple-quoted print banner.
-              text = text.replace("print '''", 'print("""')
-              text = text.replace("\n'''", '\n"""')
-
-              # Convert Python 2 print statements.
-              text = re.sub(
-                  r"(?m)^(\s*)print\s+(.+)$",
-                  lambda m: m.group(1) + "print(" + m.group(2) + ")",
-                  text
-              )
-
-              drvgen.write_text(text, encoding="utf-8")
-
-          converted = 0
-          failed = []
-
-          for py_file in dct_dir.rglob("*.py"):
-              source = py_file.read_text(encoding="utf-8", errors="replace")
-
-              # Convert the remaining Python 2 print statements safely.
-              source = re.sub(
-                  r"(?m)^(\s*)print\s+([^(].*)$",
-                  lambda m: m.group(1) + "print(" + m.group(2) + ")",
-                  source
-              )
-
-              # Python 2 exception syntax: except Exception, e:
-              source = re.sub(
-                  r"except\s+([A-Za-z_][\w.]*)\s*,\s*([A-Za-z_]\w*):",
-                  r"except \1 as \2:",
-                  source
-              )
-
-              py_file.write_text(source, encoding="utf-8")
-              converted += 1
-
-          print(f"Processed {converted} Python files.")
-
-          # Report syntax errors, but do not stop the build here.
-          for py_file in dct_dir.rglob("*.py"):
-              compile(py_file.read_text(encoding="utf-8", errors="replace"),
-                      str(py_file), "exec")
-          PY
-
-          python3 fix_python.py
-
-          mkdir -p drivers/devfreq
-          touch -a drivers/devfreq/helio-dvfsrc.h
-
-          sed -i 's/-Werror//g' Makefile
-          echo 'KBUILD_CFLAGS += -w' >> Makefile
-          echo 'CFLAGS_helio-dvfsrc-opp.o += -I$(srctree)/drivers/devfreq' >> drivers/devfreq/Makefile
-
-      - name: Setup Toolchain & Compile Kernel
+      - name: Compile kernel Image.lz4
         run: |
-          set -euxo pipefail
           cd kernel
+          if [ -d "../clang/bin" ]; then
+            export PATH="$(pwd)/../clang/bin:$PATH"
+            make -j$(nproc) O=out ARCH=$ARCH CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- $DEFCONFIG
+            make -j$(nproc) O=out ARCH=$ARCH CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+          else
+            make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- $DEFCONFIG
+            make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu-
+          fi
+          ls -lh out/arch/arm64/boot/Image.lz4 out/arch/arm64/boot/Image
 
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export PYTHONPATH="$(pwd)/tools/dct:$(pwd)/tools/dct/obj:${PYTHONPATH:-}"
-
-          make dandelion_defconfig
-          ./scripts/config --disable CONFIG_CC_STACKPROTECTOR
-          ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_NONE
-          ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_REGULAR
-          ./scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
-          ./scripts/config --disable CONFIG_STACKPROTECTOR
-          make olddefconfig
-
-          make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" \
-            Image.gz-dtb || \
-          make -j$(nproc) HOSTCFLAGS="-fcommon" KCFLAGS="-w" Image
-
-      - name: Upload Kernel Artifact
+      - name: Upload kernel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Redmi-9A-Kernel-Image
-          path: kernel/arch/arm64/boot/Image*
+          name: redmi9a-nethunter-kernel-los20
+          path: |
+            kernel/out/arch/arm64/boot/Image.lz4
+            kernel/out/arch/arm64/boot/Image
+            kernel/out/.config
