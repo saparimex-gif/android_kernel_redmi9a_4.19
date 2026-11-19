@@ -19,7 +19,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             git ccache bc bison flex libssl-dev libelf-dev \
-            zip curl wget unzip python3 make gcc-aarch64-linux-gnu clang lld
+            zip curl wget unzip python3 make gcc-aarch64-linux-gnu clang lld lz4
 
       - name: Clone kernel source and toolchain
         run: |
@@ -57,6 +57,9 @@ jobs:
           else
             make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option" $DEFCONFIG
             make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option"
+          fi
+          if [ -f out/arch/arm64/boot/Image ] && [ ! -f out/arch/arm64/boot/Image.lz4 ]; then
+            lz4 -f out/arch/arm64/boot/Image out/arch/arm64/boot/Image.lz4
           fi
           ls -lh out/arch/arm64/boot/Image.lz4 out/arch/arm64/boot/Image
 
