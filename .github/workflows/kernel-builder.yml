@@ -1,73 +1,44 @@
-name: Build NetHunter Kernel Blossom (4.19.325-universal)
+name: Build Blossom Stock Test Kernel
 
 on:
   workflow_dispatch:
-
-env:
-  KERNEL_REPO: https://github.com/plmzaq2112/blossom-4.19-universal.git
-  KERNEL_BRANCH: 4.19.325-universal
-  DEFCONFIG: blossom_defconfig
-  ARCH: arm64
-  SUBARCH: arm64
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Install build dependencies
+      - name: Install Dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            git ccache bc bison flex libssl-dev libelf-dev \
-            zip curl wget unzip python3 make gcc-aarch64-linux-gnu clang lld lz4
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libssl-dev libncurses5-dev lz4 python3 python-is-python3 zip
 
-      - name: Clone kernel source and toolchain
+      - name: Clone Kernel Source
         run: |
-          git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang || true
+          git clone --depth=1 -b 4.19.325-universal https://github.com/plmzaq2112/blossom-4.19-universal.git kernel
 
-      - name: Configure NetHunter options
+      - name: Clone Proton-Clang
         run: |
-          cd kernel
-          cat << 'EOF' >> arch/arm64/configs/$DEFCONFIG
-          CONFIG_USB_CONFIGFS_F_HID=y
-          CONFIG_BT=y
-          CONFIG_BT_BREDR=y
-          CONFIG_BT_LE=y
-          CONFIG_BT_HCIVHCI=y
-          CONFIG_BT_HCIBTUSB=y
-          CONFIG_BT_RFCOMM=y
-          CONFIG_BT_RFCOMM_TTY=y
-          CONFIG_BT_BNEP=y
-          CONFIG_BT_BNEP_MC_FILTER=y
-          CONFIG_BT_BNEP_PROTO_FILTER=y
-          CONFIG_BT_HIDP=y
-          CONFIG_CFG80211=y
-          CONFIG_MAC80211=y
-          CONFIG_MAC80211_MESH=y
-          EOF
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-      - name: Compile kernel Image.lz4
+      - name: Configure and Build (Stock Defconfig)
+        working-directory: kernel
         run: |
-          cd kernel
-          if [ -d "../clang/bin" ]; then
-            export PATH="$(pwd)/../clang/bin:$PATH"
-            make -j$(nproc) O=out ARCH=$ARCH CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option" $DEFCONFIG
-            make -j$(nproc) O=out ARCH=$ARCH CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option"
-          else
-            make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option" $DEFCONFIG
-            make -j$(nproc) O=out ARCH=$ARCH CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-unknown-warning-option"
-          fi
-          if [ -f out/arch/arm64/boot/Image ] && [ ! -f out/arch/arm64/boot/Image.lz4 ]; then
-            lz4 -f out/arch/arm64/boot/Image out/arch/arm64/boot/Image.lz4
-          fi
-          ls -lh out/arch/arm64/boot/Image.lz4 out/arch/arm64/boot/Image
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          make O=out ARCH=arm64 blossom_defconfig
+          make -j$(nproc) O=out ARCH=arm64 \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            KCFLAGS="-Wno-unknown-warning-option" \
+            Image.gz dtbs
 
-      - name: Upload kernel artifact
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: blossom-nethunter-kernel-4.19.325
+          name: blossom-stock-test-4.19.325
           path: |
-            kernel/out/arch/arm64/boot/Image.lz4
+            kernel/out/arch/arm64/boot/Image.gz
             kernel/out/arch/arm64/boot/Image
-            kernel/out/.config
+            kernel/out/arch/arm64/boot/dts/**/*.dtb
