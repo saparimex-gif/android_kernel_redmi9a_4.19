@@ -1,15 +1,14 @@
-name: Build NetHunter Kernel Blossom (LineageOS 20 - 4.19)
+name: Build NetHunter Kernel Blossom (4.19.325-universal)
 
 on:
   workflow_dispatch:
 
 env:
-  KERNEL_REPO: https://github.com/NAMA_PEMILIK_ASLI/NAMA_REPO_BLOSSOM_4_19.git
-  KERNEL_BRANCH: lineage-20.0
+  KERNEL_REPO: https://github.com/plmzaq2112/blossom-4.19-universal.git
+  KERNEL_BRANCH: 4.19.325-universal
   DEFCONFIG: blossom_defconfig
   ARCH: arm64
   SUBARCH: arm64
-
 
 jobs:
   build:
@@ -27,10 +26,9 @@ jobs:
           git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang || true
 
-      - name: Check defconfig and apply NetHunter options
+      - name: Configure NetHunter options
         run: |
           cd kernel
-          ls -la arch/arm64/configs/*blossom* arch/arm64/configs/*mt6765* 2>/dev/null || true
           cat << 'EOF' >> arch/arm64/configs/$DEFCONFIG
           CONFIG_USB_CONFIGFS_F_HID=y
           CONFIG_BT=y
@@ -65,7 +63,7 @@ jobs:
       - name: Upload kernel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: blossom-nethunter-kernel-4.19-los20
+          name: blossom-nethunter-kernel-4.19.325
           path: |
             kernel/out/arch/arm64/boot/Image.lz4
             kernel/out/arch/arm64/boot/Image
