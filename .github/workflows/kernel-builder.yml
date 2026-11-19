@@ -1,12 +1,12 @@
-name: Build NetHunter Kernel Redmi 9A (LineageOS 20)
+name: Build NetHunter Kernel Blossom (LineageOS 20 - 4.19)
 
 on:
   workflow_dispatch:
 
 env:
-  KERNEL_REPO: https://github.com/LINEAGEOS_OR_DEV/android_kernel_xiaomi_mt6765.git
+  KERNEL_REPO: https://github.com/PEMILIK_REPO/android_kernel_xiaomi_mt6765.git
   KERNEL_BRANCH: lineage-20.0
-  DEFCONFIG: dandelion_defconfig
+  DEFCONFIG: blossom_defconfig
   ARCH: arm64
   SUBARCH: arm64
 
@@ -26,9 +26,10 @@ jobs:
           git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang || true
 
-      - name: Configure NetHunter options
+      - name: Check defconfig and apply NetHunter options
         run: |
           cd kernel
+          ls -la arch/arm64/configs/*blossom* arch/arm64/configs/*mt6765* 2>/dev/null || true
           cat << 'EOF' >> arch/arm64/configs/$DEFCONFIG
           CONFIG_USB_CONFIGFS_F_HID=y
           CONFIG_BT=y
@@ -63,7 +64,7 @@ jobs:
       - name: Upload kernel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: redmi9a-nethunter-kernel-los20
+          name: blossom-nethunter-kernel-4.19-los20
           path: |
             kernel/out/arch/arm64/boot/Image.lz4
             kernel/out/arch/arm64/boot/Image
