@@ -18,11 +18,9 @@ jobs:
             libelf-dev libssl-dev lld llvm python3 python-is-python3 \
             unzip wget zip zlib1g-dev
 
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v4
-        with:
-          path: kernel_repo
-          submodules: recursive
+      - name: Clone Kernel Source 4.19 (blossom / Redmi 9A)
+        run: |
+          git clone --depth=1 https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom.git kernel
 
       - name: Clone Toolchain (Proton Clang)
         run: |
@@ -32,29 +30,14 @@ jobs:
         run: |
           git clone --depth=1 https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel.git nh-builder
 
-      - name: Inspect Repo Structure & Detect Defconfig
+      - name: Detect Defconfig & Apply NetHunter Configs
         env:
           ARCH: arm64
           SUBARCH: arm64
         run: |
-          echo "=== Struktur isi repositori ==="
-          ls -la kernel_repo
+          cd kernel
 
-          CONFIG_DIR=$(find kernel_repo -maxdepth 4 -type d -path "*/arch/arm64/configs" | head -n 1)
-
-          if [ -z "$CONFIG_DIR" ]; then
-            echo "ERROR: Folder arch/arm64/configs tidak ditemukan di repo ini!"
-            echo "Daftar direktori yang ada:"
-            find kernel_repo -maxdepth 3 -type d
-            exit 1
-          fi
-
-          KERNEL_ROOT=$(realpath "$CONFIG_DIR/../../..")
-          echo "KERNEL_ROOT=$KERNEL_ROOT" >> $GITHUB_ENV
-          echo "Kernel root ditemukan di: $KERNEL_ROOT"
-
-          cd "$KERNEL_ROOT"
-
+          # Cari file defconfig di arch/arm64/configs
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
 
           if [ -z "$DEFCONFIG_PATH" ]; then
@@ -67,18 +50,14 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
-      - name: Apply NetHunter Patches & Configs
-        env:
-          ARCH: arm64
-          SUBARCH: arm64
-        run: |
-          cd "$KERNEL_ROOT"
-
+          # Terapkan patch Wi-Fi injection & HID gadget (abaikan jika sudah ada)
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
 
+          # Generate .config awal
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
+          # Aktifkan fitur Kali NetHunter (HID, Wi-Fi monitor/injection, SDR, SysV IPC)
           ./scripts/config --file out/.config \
             -e SYSVIPC \
             -e MODULES \
@@ -108,7 +87,7 @@ jobs:
           ARCH: arm64
           SUBARCH: arm64
         run: |
-          cd "$KERNEL_ROOT"
+          cd kernel
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
 
           make -j$(nproc) O=out \
@@ -133,7 +112,7 @@ jobs:
           sed -i 's/device.name2=.*/device.name2=blossom/' anykernel/anykernel.sh
           sed -i 's|block=.*|block=/dev/block/by-name/boot;|' anykernel/anykernel.sh
 
-          BOOT_DIR="$KERNEL_ROOT/out/arch/arm64/boot"
+          BOOT_DIR="$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot"
           if [ -f "$BOOT_DIR/Image.gz-dtb" ]; then
             cp "$BOOT_DIR/Image.gz-dtb" anykernel/
           elif [ -f "$BOOT_DIR/Image.gz" ]; then
