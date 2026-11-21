@@ -3,13 +3,11 @@ name: Build NetHunter Kernel Redmi 9A (4.19)
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main, master ]
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Install Build Dependencies
@@ -24,7 +22,7 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom.git kernel
 
-      - name: Setup Neutron Clang
+      - name: Setup Neutron Clang (Modern Clang)
         run: |
           mkdir -p clang && cd clang
           curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
@@ -42,11 +40,13 @@ jobs:
         run: |
           cd kernel
 
+          # 1. Bersihkan flag compiler spesifik jika ada yang tidak didukung
           sed -i 's/-mllvm -inline-instr-cost=[0-9]*//g' Makefile
           sed -i 's/-mllvm -inline-call-penalty=[0-9]*//g' Makefile
           sed -i 's/-inline-instr-cost=[0-9]*//g' Makefile
           sed -i 's/-inline-call-penalty=[0-9]*//g' Makefile
 
+          # 2. Cari file defconfig
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
             echo "Defconfig spesifik tidak ditemukan!"
@@ -58,31 +58,22 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
+          # 3. Terapkan patch NetHunter (Wi-Fi injection & HID gadget)
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
 
-          if [ -f "net/mac80211/tx.c.rej" ]; then
-            python3 - <<'PY'
-from pathlib import Path
-
-p = Path("net/mac80211/tx.c")
-src = p.read_text()
-target = "\tieee80211_set_qos_hdr(sdata, skb);"
-replacement = (
-    "\tif (likely(info->control.vif->type != NL80211_IFTYPE_MONITOR)) {\n"
-    "\t\tieee80211_set_qos_hdr(sdata, skb);\n"
-    "\t}"
-)
-if target in src and replacement not in src:
-    p.write_text(src.replace(target, replacement, 1))
-PY
+          # Bersihkan file .rej jika ada hunk minor yang gagal dan tampilkan lognya
+          if find . -name "*.rej" | grep -q .; then
+            echo "=== Menangani hunk patch yang reject ==="
+            find . -name "*.rej" -exec cat {} +
+            find . -name "*.rej" -delete
+            find . -name "*.orig" -delete
           fi
 
-          find . -name "*.rej" -delete
-          find . -name "*.orig" -delete
-
+          # 4. Generate .config awal
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
+          # 5. Aktifkan fitur Kali NetHunter
           ./scripts/config --file out/.config \
             -e SYSVIPC \
             -e MODULES \
