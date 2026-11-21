@@ -102,23 +102,12 @@ jobs:
           if [ -f "net/mac80211/tx.c.rej" ]; then
             echo "=== Isi net/mac80211/tx.c.rej ==="
             cat net/mac80211/tx.c.rej
-            if ! grep -q "NL80211_IFTYPE_MONITOR" net/mac80211/tx.c; then
-              awk '
-                /ieee80211_set_qos_hdr\(sdata, skb\);/ && !done {
-                  print "\tif (info->control.vif->type != NL80211_IFTYPE_MONITOR)"
-                  print "\t\t" $0
-                  done=1
-                  next
-                }
-                { print }
-              ' net/mac80211/tx.c > net/mac80211/tx.c.tmp && mv net/mac80211/tx.c.tmp net/mac80211/tx.c
-            fi
           fi
 
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
 
-          yes "" | make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
+          yes "n" | make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
           ./scripts/config --file out/.config \
             -e MODULES \
@@ -141,7 +130,7 @@ jobs:
             -m MEDIA_SUPPORT \
             -m MEDIA_SDR_SUPPORT
 
-          yes "" | make -j$(nproc) O=out ARCH=arm64 olddefconfig
+          yes "n" | make -j$(nproc) O=out ARCH=arm64 olddefconfig
 
       - name: Compile Kernel
         env:
@@ -162,9 +151,9 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             LLVM=1 \
             LLVM_IAS=1 2>&1 | tee build.log || {
-              echo "=== DIAGNOSTIK LENGKAP DRIVERS/ANDROID ==="
-              grep -n -C 8 "drivers/android" build.log | tail -n 100 || true
-              echo "=== DIAGNOSTIK ERROR KOMPILATOR ==="
+              echo "=== DETAIL ERROR BINDER_ALLOC ==="
+              grep -n -C 10 "binder_alloc" build.log | tail -n 100 || true
+              echo "=== DETAIL ERROR KOMPILATOR ==="
               grep -n -C 4 "error:" build.log | tail -n 80 || true
               exit 1
             }
