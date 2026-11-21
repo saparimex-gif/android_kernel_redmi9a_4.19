@@ -39,14 +39,17 @@ jobs:
             fi
           done
 
-      - name: Setup Neutron Clang (Modern Clang)
+      - name: Clone AOSP Clang Toolchain
         run: |
-          mkdir -p clang && cd clang
-          for i in 1 2 3; do
-            curl -fsSL "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman" -o antman && chmod +x antman && ./antman -S=latest && ./antman --patch=glibc && break
+          for i in 1 2 3 4 5; do
+            echo "Cloning toolchain_aosp_clang (percobaan ke-$i)..."
+            rm -rf clang
+            if git clone --depth=1 --single-branch https://github.com/IsHacker-kernel/toolchain_aosp_clang.git clang; then
+              break
+            fi
             sleep 5
-            if [ "$i" -eq 3 ]; then
-              echo "Gagal mengunduh/menyiapkan Neutron Clang."
+            if [ "$i" -eq 5 ]; then
+              echo "Gagal clone toolchain_aosp_clang setelah 5 percobaan."
               exit 1
             fi
           done
@@ -73,24 +76,15 @@ jobs:
         run: |
           cd kernel
 
-          # 1. Bersihkan flag compiler spesifik jika ada yang tidak didukung
-          sed -i 's/-mllvm -inline-instr-cost=[0-9]*//g' Makefile
-          sed -i 's/-mllvm -inline-call-penalty=[0-9]*//g' Makefile
-          sed -i 's/-inline-instr-cost=[0-9]*//g' Makefile
-          sed -i 's/-inline-call-penalty=[0-9]*//g' Makefile
-
-          # 2. Perbaiki invalid return pada void msg_init() & void sem_init()
+          # Perbaiki void return pada msg_init() & sem_init() jika ada
           if [ -f "ipc/msg.c" ]; then
             sed -i '1285,1305s/return -EINVAL;/return;/g; 1285,1305s/\breturn err;/return;/g' ipc/msg.c
           fi
-
           if [ -f "ipc/sem.c" ]; then
-            echo "=== Cek ipc/sem.c sekitar baris 247 ==="
-            nl -ba ipc/sem.c | sed -n '235,255p' || true
             sed -i '235,255s/return 0;/return;/g' ipc/sem.c
           fi
 
-          # 3. Cari file defconfig
+          # Cari file defconfig
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
             echo "Defconfig spesifik tidak ditemukan!"
@@ -102,24 +96,32 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
-          # 4. Terapkan patch NetHunter (Wi-Fi injection & HID gadget)
+          # Terapkan patch NetHunter (Wi-Fi injection & HID gadget)
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
 
-          # Tampilkan isi .rej jika ada lalu bersihkan sisa .rej / .orig
-          if find . -name "*.rej" | grep -q .; then
-            echo "=== Detail hunk patch yang reject ==="
-            find . -name "*.rej" -exec cat {} +
+          # Perbaiki hunk #2 net/mac80211/tx.c jika tertolak
+          if [ -f "net/mac80211/tx.c.rej" ]; then
+            python3 - <<'PY'
+from pathlib import Path
+
+p = Path("net/mac80211/tx.c")
+src = p.read_text()
+old = "\tieee80211_set_qos_hdr(sdata, skb);"
+new = "\tif (info->control.vif->type != NL80211_IFTYPE_MONITOR)\n\t\tieee80211_set_qos_hdr(sdata, skb);"
+if old in src and new not in src:
+    p.write_text(src.replace(old, new, 1))
+PY
           fi
+
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
 
-          # 5. Generate .config awal
+          # Generate .config awal
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
-          # 6. Aktifkan fitur Kali NetHunter
+          # Aktifkan fitur NetHunter tanpa mengubah opsi inti Android/memory di drivers/android
           ./scripts/config --file out/.config \
-            -e SYSVIPC \
             -e MODULES \
             -e MODULE_UNLOAD \
             -e CFG80211 \
@@ -148,8 +150,11 @@ jobs:
           SUBARCH: arm64
         run: |
           cd kernel
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          CLANG_BIN=$(find "$GITHUB_WORKSPACE/clang" -maxdepth 4 -type f -name "clang" | head -n 1 | xargs dirname)
+          export PATH="$CLANG_BIN:$PATH"
+          echo "Menggunakan Clang dari: $CLANG_BIN"
 
+          set -o pipefail
           make -j$(nproc) O=out \
             ARCH=arm64 \
             CC=clang \
@@ -157,7 +162,12 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             LLVM=1 \
-            LLVM_IAS=1
+            LLVM_IAS=1 2>&1 | tee build.log || {
+              echo "=== DETAIL ERROR DI DRIVERS/ANDROID ATAU KOMPILASI ==="
+              grep -n -C 5 "drivers/android" build.log | tail -n 60 || true
+              grep -n -C 3 "error:" build.log | tail -n 50 || true
+              exit 1
+            }
 
       - name: Package with AnyKernel3
         run: |
