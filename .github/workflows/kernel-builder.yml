@@ -43,7 +43,7 @@ jobs:
         run: |
           mkdir -p clang && cd clang
           for i in 1 2 3; do
-            curl -fsSL "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman" -o antman && chmod +x antman && ./antman -S=latest && break
+            curl -fsSL "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman" -o antman && chmod +x antman && ./antman -S=latest && ./antman --patch=glibc && break
             sleep 5
             if [ "$i" -eq 3 ]; then
               echo "Gagal mengunduh/menyiapkan Neutron Clang."
@@ -79,11 +79,15 @@ jobs:
           sed -i 's/-inline-instr-cost=[0-9]*//g' Makefile
           sed -i 's/-inline-call-penalty=[0-9]*//g' Makefile
 
-          # 2. Perbaiki invalid return pada void msg_init() di ipc/msg.c sekitar baris 1296
+          # 2. Perbaiki invalid return pada void msg_init() & void sem_init()
           if [ -f "ipc/msg.c" ]; then
-            echo "=== Cek ipc/msg.c sekitar baris 1296 ==="
-            nl -ba ipc/msg.c | sed -n '1285,1305p' || true
             sed -i '1285,1305s/return -EINVAL;/return;/g; 1285,1305s/\breturn err;/return;/g' ipc/msg.c
+          fi
+
+          if [ -f "ipc/sem.c" ]; then
+            echo "=== Cek ipc/sem.c sekitar baris 247 ==="
+            nl -ba ipc/sem.c | sed -n '235,255p' || true
+            sed -i '235,255s/return 0;/return;/g' ipc/sem.c
           fi
 
           # 3. Cari file defconfig
@@ -136,7 +140,7 @@ jobs:
             -m MEDIA_SUPPORT \
             -m MEDIA_SDR_SUPPORT
 
-          make -j$(nproc) O=out ARCH=arm64 olddefconfig
+          yes "" | make -j$(nproc) O=out ARCH=arm64 olddefconfig
 
       - name: Compile Kernel
         env:
