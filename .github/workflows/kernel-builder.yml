@@ -18,20 +18,53 @@ jobs:
             libelf-dev libssl-dev lld llvm python3 python-is-python3 \
             unzip wget zip zlib1g-dev zstd
 
+      - name: Configure Git for Large Clones & Retries
+        run: |
+          git config --global http.version HTTP/1.1
+          git config --global http.postBuffer 524288000
+          git config --global core.compression 0
+
       - name: Clone Kernel Source 4.19 (blossom / Redmi 9A)
         run: |
-          git clone --depth=1 https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom.git kernel
+          for i in 1 2 3 4 5; do
+            echo "Cloning kernel source (percobaan ke-$i)..."
+            rm -rf kernel
+            if git clone --depth=1 --single-branch https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom.git kernel; then
+              break
+            fi
+            sleep 5
+            if [ "$i" -eq 5 ]; then
+              echo "Gagal clone kernel source setelah 5 percobaan."
+              exit 1
+            fi
+          done
 
       - name: Setup Neutron Clang (Modern Clang)
         run: |
           mkdir -p clang && cd clang
-          curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
-          chmod +x antman
-          ./antman -S=latest
+          for i in 1 2 3; do
+            curl -fsSL "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman" -o antman && chmod +x antman && ./antman -S=latest && break
+            sleep 5
+            if [ "$i" -eq 3 ]; then
+              echo "Gagal mengunduh/menyiapkan Neutron Clang."
+              exit 1
+            fi
+          done
 
       - name: Clone Kali NetHunter Kernel Builder (Patches)
         run: |
-          git clone --depth=1 https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel.git nh-builder
+          for i in 1 2 3 4 5; do
+            echo "Cloning kali-nethunter-kernel dari GitLab (percobaan ke-$i)..."
+            rm -rf nh-builder
+            if git clone --depth=1 --single-branch https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel.git nh-builder; then
+              break
+            fi
+            sleep 5
+            if [ "$i" -eq 5 ]; then
+              echo "Gagal clone kali-nethunter-kernel dari GitLab setelah 5 percobaan."
+              exit 1
+            fi
+          done
 
       - name: Detect Defconfig, Patch & Apply NetHunter Configs
         env:
@@ -125,7 +158,11 @@ jobs:
       - name: Package with AnyKernel3
         run: |
           cd "$GITHUB_WORKSPACE"
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
+          for i in 1 2 3; do
+            rm -rf anykernel
+            git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel && break
+            sleep 5
+          done
 
           sed -i 's/device.name1=.*/device.name1=dandelion/' anykernel/anykernel.sh
           sed -i 's/device.name2=.*/device.name2=blossom/' anykernel/anykernel.sh
