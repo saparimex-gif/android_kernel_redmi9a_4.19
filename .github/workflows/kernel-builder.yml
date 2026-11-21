@@ -16,32 +16,40 @@ jobs:
           sudo apt-get install -y \
             bc bison build-essential ccache curl flex git \
             libelf-dev libssl-dev lld llvm python3 python-is-python3 \
-            unzip wget zip zlib1g-dev
+            unzip wget zip zlib1g-dev zstd
 
       - name: Clone Kernel Source 4.19 (blossom / Redmi 9A)
         run: |
           git clone --depth=1 https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom.git kernel
 
-      - name: Clone Toolchain (Proton Clang)
+      - name: Setup Neutron Clang (Modern Clang)
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          mkdir -p clang && cd clang
+          curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+          chmod +x antman
+          ./antman -S=latest
 
       - name: Clone Kali NetHunter Kernel Builder (Patches)
         run: |
           git clone --depth=1 https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel.git nh-builder
 
-      - name: Detect Defconfig & Apply NetHunter Configs
+      - name: Detect Defconfig, Patch & Apply NetHunter Configs
         env:
           ARCH: arm64
           SUBARCH: arm64
         run: |
           cd kernel
 
-          # Cari file defconfig di arch/arm64/configs
-          DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
+          # 1. Bersihkan flag compiler spesifik jika ada yang tidak didukung
+          sed -i 's/-mllvm -inline-instr-cost=[0-9]*//g' Makefile
+          sed -i 's/-mllvm -inline-call-penalty=[0-9]*//g' Makefile
+          sed -i 's/-inline-instr-cost=[0-9]*//g' Makefile
+          sed -i 's/-inline-call-penalty=[0-9]*//g' Makefile
 
+          # 2. Cari file defconfig
+          DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
-            echo "Defconfig spesifik tidak ditemukan. Daftar file di arch/arm64/configs/:"
+            echo "Defconfig spesifik tidak ditemukan!"
             find arch/arm64/configs -maxdepth 2 -type f
             exit 1
           fi
@@ -50,14 +58,22 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
-          # Terapkan patch Wi-Fi injection & HID gadget (abaikan jika sudah ada)
+          # 3. Terapkan patch NetHunter (Wi-Fi injection & HID gadget)
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
 
-          # Generate .config awal
+          # Bersihkan file .rej jika ada hunk minor yang gagal dan tampilkan lognya
+          if find . -name "*.rej" | grep -q .; then
+            echo "=== Menangani hunk patch yang reject ==="
+            find . -name "*.rej" -exec cat {} +
+            find . -name "*.rej" -delete
+            find . -name "*.orig" -delete
+          fi
+
+          # 4. Generate .config awal
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
-          # Aktifkan fitur Kali NetHunter (HID, Wi-Fi monitor/injection, SDR, SysV IPC)
+          # 5. Aktifkan fitur Kali NetHunter
           ./scripts/config --file out/.config \
             -e SYSVIPC \
             -e MODULES \
@@ -96,12 +112,8 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip
+            LLVM=1 \
+            LLVM_IAS=1
 
       - name: Package with AnyKernel3
         run: |
