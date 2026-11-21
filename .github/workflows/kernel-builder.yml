@@ -21,7 +21,8 @@ jobs:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
-          path: kernel
+          path: kernel_repo
+          submodules: recursive
 
       - name: Clone Toolchain (Proton Clang)
         run: |
@@ -31,37 +32,53 @@ jobs:
         run: |
           git clone --depth=1 https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel.git nh-builder
 
-      - name: Detect Defconfig & Apply NetHunter Configs
+      - name: Inspect Repo Structure & Detect Defconfig
         env:
           ARCH: arm64
           SUBARCH: arm64
         run: |
-          cd kernel
+          echo "=== Struktur isi repositori ==="
+          ls -la kernel_repo
 
-          # Cari nama defconfig yang tersedia di repo (blossom / dandelion / mt6765)
-          if [ -f "arch/arm64/configs/blossom_defconfig" ]; then
-            DEFCONFIG="blossom_defconfig"
-          elif [ -f "arch/arm64/configs/dandelion_defconfig" ]; then
-            DEFCONFIG="dandelion_defconfig"
-          elif [ -f "arch/arm64/configs/vendor/blossom_defconfig" ]; then
-            DEFCONFIG="vendor/blossom_defconfig"
-          else
-            echo "Defconfig tidak ditemukan! Daftar file di arch/arm64/configs/:"
-            ls -la arch/arm64/configs/
+          CONFIG_DIR=$(find kernel_repo -maxdepth 4 -type d -path "*/arch/arm64/configs" | head -n 1)
+
+          if [ -z "$CONFIG_DIR" ]; then
+            echo "ERROR: Folder arch/arm64/configs tidak ditemukan di repo ini!"
+            echo "Daftar direktori yang ada:"
+            find kernel_repo -maxdepth 3 -type d
             exit 1
           fi
 
+          KERNEL_ROOT=$(realpath "$CONFIG_DIR/../../..")
+          echo "KERNEL_ROOT=$KERNEL_ROOT" >> $GITHUB_ENV
+          echo "Kernel root ditemukan di: $KERNEL_ROOT"
+
+          cd "$KERNEL_ROOT"
+
+          DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
+
+          if [ -z "$DEFCONFIG_PATH" ]; then
+            echo "Defconfig spesifik tidak ditemukan. Daftar file di arch/arm64/configs/:"
+            find arch/arm64/configs -maxdepth 2 -type f
+            exit 1
+          fi
+
+          DEFCONFIG=${DEFCONFIG_PATH#arch/arm64/configs/}
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
-          # Terapkan patch Wi-Fi injection & HID gadget (abaikan jika sudah ter-patch)
-          patch -p1 --forward < ../nh-builder/patches/4.19/add-wifi-injection-4.14.patch || true
-          patch -p1 --forward < ../nh-builder/patches/4.19/add-hid-gadget-4.19.patch || true
+      - name: Apply NetHunter Patches & Configs
+        env:
+          ARCH: arm64
+          SUBARCH: arm64
+        run: |
+          cd "$KERNEL_ROOT"
 
-          # Generate .config awal
+          patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
+          patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
+
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
-          # Aktifkan fitur wajib Kali NetHunter melalui scripts/config
           ./scripts/config --file out/.config \
             -e SYSVIPC \
             -e MODULES \
@@ -91,8 +108,8 @@ jobs:
           ARCH: arm64
           SUBARCH: arm64
         run: |
-          cd kernel
-          export PATH="$(pwd)/../clang/bin:$PATH"
+          cd "$KERNEL_ROOT"
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
 
           make -j$(nproc) O=out \
             ARCH=arm64 \
@@ -109,15 +126,14 @@ jobs:
 
       - name: Package with AnyKernel3
         run: |
+          cd "$GITHUB_WORKSPACE"
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
 
-          # Sesuaikan konfigurasi anykernel.sh untuk Redmi 9A (dandelion / blossom)
           sed -i 's/device.name1=.*/device.name1=dandelion/' anykernel/anykernel.sh
           sed -i 's/device.name2=.*/device.name2=blossom/' anykernel/anykernel.sh
           sed -i 's|block=.*|block=/dev/block/by-name/boot;|' anykernel/anykernel.sh
 
-          # Salin hasil build kernel (Image.gz-dtb atau Image.gz + dtb)
-          BOOT_DIR="kernel/out/arch/arm64/boot"
+          BOOT_DIR="$KERNEL_ROOT/out/arch/arm64/boot"
           if [ -f "$BOOT_DIR/Image.gz-dtb" ]; then
             cp "$BOOT_DIR/Image.gz-dtb" anykernel/
           elif [ -f "$BOOT_DIR/Image.gz" ]; then
@@ -131,11 +147,11 @@ jobs:
           fi
 
           cd anykernel
-          zip -r9 ../NetHunter-Kernel-Redmi9A-4.19.zip * -x .git README.md *placeholder
+          zip -r9 "$GITHUB_WORKSPACE/NetHunter-Kernel-Redmi9A-4.19.zip" * -x .git README.md *placeholder
 
       - name: Upload NetHunter Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NetHunter-Kernel-Redmi9A-4.19
+          name: NetHunter-Kernel-Redmi9A
           path: NetHunter-Kernel-Redmi9A-4.19.zip
           retention-days: 14
