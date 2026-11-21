@@ -3,7 +3,9 @@ name: Build NetHunter Kernel Redmi 9A (4.19)
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
@@ -76,7 +78,6 @@ jobs:
         run: |
           cd kernel
 
-          # Perbaiki void return pada msg_init() & sem_init() jika ada
           if [ -f "ipc/msg.c" ]; then
             sed -i '1285,1305s/return -EINVAL;/return;/g; 1285,1305s/\breturn err;/return;/g' ipc/msg.c
           fi
@@ -84,7 +85,6 @@ jobs:
             sed -i '235,255s/return 0;/return;/g' ipc/sem.c
           fi
 
-          # Cari file defconfig
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
             echo "Defconfig spesifik tidak ditemukan!"
@@ -96,31 +96,14 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
-          # Terapkan patch NetHunter (Wi-Fi injection & HID gadget)
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
-
-          # Perbaiki hunk #2 net/mac80211/tx.c jika tertolak
-          if [ -f "net/mac80211/tx.c.rej" ]; then
-            python3 - <<'PY'
-from pathlib import Path
-
-p = Path("net/mac80211/tx.c")
-src = p.read_text()
-old = "\tieee80211_set_qos_hdr(sdata, skb);"
-new = "\tif (info->control.vif->type != NL80211_IFTYPE_MONITOR)\n\t\tieee80211_set_qos_hdr(sdata, skb);"
-if old in src and new not in src:
-    p.write_text(src.replace(old, new, 1))
-PY
-          fi
 
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
 
-          # Generate .config awal
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
-          # Aktifkan fitur NetHunter tanpa mengubah opsi inti Android/memory di drivers/android
           ./scripts/config --file out/.config \
             -e MODULES \
             -e MODULE_UNLOAD \
