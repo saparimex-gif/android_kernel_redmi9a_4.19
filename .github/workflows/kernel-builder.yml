@@ -85,6 +85,12 @@ jobs:
             sed -i '235,255s/return 0;/return;/g' ipc/sem.c
           fi
 
+          # Jika lowmemorykiller.c tidak ada, amankan referensi lowmemorykiller.o di drivers/android/Makefile
+          if [ ! -f "drivers/android/lowmemorykiller.c" ] && [ -f "drivers/android/Makefile" ]; then
+            sed -i '/lowmemorykiller\.o/d' drivers/android/Makefile
+          fi
+          grep -rn "select ANDROID_LOW_MEMORY_KILLER" drivers/ arch/ 2>/dev/null || true
+
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
             echo "Defconfig spesifik tidak ditemukan!"
@@ -98,11 +104,6 @@ jobs:
 
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
-
-          if [ -f "net/mac80211/tx.c.rej" ]; then
-            echo "=== Isi net/mac80211/tx.c.rej ==="
-            cat net/mac80211/tx.c.rej
-          fi
 
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
@@ -136,7 +137,10 @@ jobs:
             -m MEDIA_SUPPORT \
             -m MEDIA_SDR_SUPPORT
 
-          make -j$(nproc) O=out ARCH=arm64 olddefconfig < /dev/null || true
+          sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
+
+          yes "n" | make -j$(nproc) O=out ARCH=arm64 olddefconfig || true
+          sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
 
       - name: Compile Kernel
         env:
