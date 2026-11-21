@@ -1,4 +1,4 @@
-name: Build Blossom Stock Test Kernel
+name: Build NetHunter Kernel Redmi 9A
 
 on:
   workflow_dispatch:
@@ -7,38 +7,41 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex git libssl-dev libncurses5-dev lz4 python3 python-is-python3 zip
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libssl-dev zip python3
 
-      - name: Clone Kernel Source
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          path: kernel
+
+      - name: Clone Proton Clang
+        run: git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+
+      - name: Compile kernel
+        env:
+          ARCH: arm64
+          SUBARCH: arm64
         run: |
-          git clone --depth=1 -b 4.19.325-universal https://github.com/plmzaq2112/blossom-4.19-universal.git kernel
+          cd kernel
+          make -j$(nproc) O=out dandelion_defconfig
+          make -j$(nproc) O=out \
+            CC="../clang/bin/clang" \
+            CLANG_TRIPLE="aarch64-linux-gnu-" \
+            CROSS_COMPILE="../clang/bin/aarch64-linux-gnu-" \
+            CROSS_COMPILE_ARM32="../clang/bin/arm-linux-gnueabi-"
 
-      - name: Clone Proton-Clang
+      - name: Package AnyKernel3
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb anykernel/
+          cd anykernel
+          zip -r9 ../NetHunter-dandelion.zip * -x .git README.md
 
-      - name: Configure and Build (Stock Defconfig)
-        working-directory: kernel
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-          make O=out ARCH=arm64 blossom_defconfig
-          make -j$(nproc) O=out ARCH=arm64 \
-            CC=clang \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            KCFLAGS="-Wno-unknown-warning-option" \
-            Image.gz dtbs
-
-      - name: Upload Build Artifacts
+      - name: Upload kernel zip
         uses: actions/upload-artifact@v4
         with:
-          name: blossom-stock-test-4.19.325
-          path: |
-            kernel/out/arch/arm64/boot/Image.gz
-            kernel/out/arch/arm64/boot/Image
-            kernel/out/arch/arm64/boot/dts/**/*.dtb
+          name: NetHunter-Kernel-Redmi9A
+          path: NetHunter-dandelion.zip
