@@ -46,7 +46,14 @@ jobs:
           sed -i 's/-inline-instr-cost=[0-9]*//g' Makefile
           sed -i 's/-inline-call-penalty=[0-9]*//g' Makefile
 
-          # 2. Cari file defconfig
+          # 2. Perbaiki error undeclared 'err' di ipc/msg.c sekitar baris 1296
+          if [ -f "ipc/msg.c" ]; then
+            echo "=== Cek ipc/msg.c sekitar baris 1296 ==="
+            nl -ba ipc/msg.c | sed -n '1285,1305p' || true
+            sed -i '1285,1305s/\breturn err;/return -EINVAL;/' ipc/msg.c
+          fi
+
+          # 3. Cari file defconfig
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
             echo "Defconfig spesifik tidak ditemukan!"
@@ -58,7 +65,7 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
-          # 3. Terapkan patch NetHunter (Wi-Fi injection & HID gadget)
+          # 4. Terapkan patch NetHunter (Wi-Fi injection & HID gadget)
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
 
@@ -70,10 +77,10 @@ jobs:
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
 
-          # 4. Generate .config awal
+          # 5. Generate .config awal
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
-          # 5. Aktifkan fitur Kali NetHunter
+          # 6. Aktifkan fitur Kali NetHunter
           ./scripts/config --file out/.config \
             -e SYSVIPC \
             -e MODULES \
