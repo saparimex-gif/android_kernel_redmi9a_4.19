@@ -79,11 +79,11 @@ jobs:
           sed -i 's/-inline-instr-cost=[0-9]*//g' Makefile
           sed -i 's/-inline-call-penalty=[0-9]*//g' Makefile
 
-          # 2. Perbaiki error undeclared 'err' di ipc/msg.c sekitar baris 1296
+          # 2. Perbaiki invalid return pada void msg_init() di ipc/msg.c sekitar baris 1296
           if [ -f "ipc/msg.c" ]; then
             echo "=== Cek ipc/msg.c sekitar baris 1296 ==="
             nl -ba ipc/msg.c | sed -n '1285,1305p' || true
-            sed -i '1285,1305s/\breturn err;/return -EINVAL;/' ipc/msg.c
+            sed -i '1285,1305s/return -EINVAL;/return;/g; 1285,1305s/\breturn err;/return;/g' ipc/msg.c
           fi
 
           # 3. Cari file defconfig
