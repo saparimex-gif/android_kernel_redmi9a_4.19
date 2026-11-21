@@ -107,9 +107,13 @@ jobs:
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
 
-          yes "n" | make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
+          make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
           ./scripts/config --file out/.config \
+            -d LTO_CLANG \
+            -d CONFIG_LTO_CLANG \
+            -d RELR \
+            -d CONFIG_RELR \
             -e MODULES \
             -e MODULE_UNLOAD \
             -e CFG80211 \
@@ -130,7 +134,7 @@ jobs:
             -m MEDIA_SUPPORT \
             -m MEDIA_SDR_SUPPORT
 
-          yes "n" | make -j$(nproc) O=out ARCH=arm64 olddefconfig
+          make -j$(nproc) O=out ARCH=arm64 olddefconfig < /dev/null || true
 
       - name: Compile Kernel
         env:
@@ -151,10 +155,15 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             LLVM=1 \
             LLVM_IAS=1 2>&1 | tee build.log || {
-              echo "=== DETAIL ERROR BINDER_ALLOC ==="
-              grep -n -C 10 "binder_alloc" build.log | tail -n 100 || true
-              echo "=== DETAIL ERROR KOMPILATOR ==="
-              grep -n -C 4 "error:" build.log | tail -n 80 || true
+              echo "=== RE-RUN SINGLE THREAD UNTUK MENANGKAP ERROR ASLI ==="
+              make -j1 O=out \
+                ARCH=arm64 \
+                CC=clang \
+                CLANG_TRIPLE=aarch64-linux-gnu- \
+                CROSS_COMPILE=aarch64-linux-gnu- \
+                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+                LLVM=1 \
+                LLVM_IAS=1 2>&1 | tail -n 80 || true
               exit 1
             }
 
