@@ -114,6 +114,8 @@ jobs:
             -d CONFIG_LTO_CLANG \
             -d RELR \
             -d CONFIG_RELR \
+            -d ANDROID_LOW_MEMORY_KILLER \
+            -d CONFIG_ANDROID_LOW_MEMORY_KILLER \
             -e MODULES \
             -e MODULE_UNLOAD \
             -e CFG80211 \
