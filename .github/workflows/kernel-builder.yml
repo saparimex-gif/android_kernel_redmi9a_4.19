@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Install Build Dependencies
@@ -62,13 +62,13 @@ jobs:
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
 
-          # Bersihkan file .rej jika ada hunk minor yang gagal dan tampilkan lognya
+          # Tampilkan isi .rej jika ada lalu bersihkan sisa .rej / .orig
           if find . -name "*.rej" | grep -q .; then
-            echo "=== Menangani hunk patch yang reject ==="
+            echo "=== Detail hunk patch yang reject ==="
             find . -name "*.rej" -exec cat {} +
-            find . -name "*.rej" -delete
-            find . -name "*.orig" -delete
           fi
+          find . -name "*.rej" -delete
+          find . -name "*.orig" -delete
 
           # 4. Generate .config awal
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
