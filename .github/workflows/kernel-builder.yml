@@ -1,47 +1,141 @@
-name: Build NetHunter Kernel Redmi 9A
+name: Build NetHunter Kernel Redmi 9A (4.19)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main, master ]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: Install dependencies
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libssl-dev zip python3
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex git \
+            libelf-dev libssl-dev lld llvm python3 python-is-python3 \
+            unzip wget zip zlib1g-dev
 
-      - name: Checkout kernel source
+      - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           path: kernel
 
-      - name: Clone Proton Clang
-        run: git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+      - name: Clone Toolchain (Proton Clang)
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-      - name: Compile kernel
+      - name: Clone Kali NetHunter Kernel Builder (Patches)
+        run: |
+          git clone --depth=1 https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel.git nh-builder
+
+      - name: Detect Defconfig & Apply NetHunter Configs
         env:
           ARCH: arm64
           SUBARCH: arm64
         run: |
           cd kernel
-          make -j$(nproc) O=out dandelion_defconfig
-          make -j$(nproc) O=out \
-            CC="../clang/bin/clang" \
-            CLANG_TRIPLE="aarch64-linux-gnu-" \
-            CROSS_COMPILE="../clang/bin/aarch64-linux-gnu-" \
-            CROSS_COMPILE_ARM32="../clang/bin/arm-linux-gnueabi-"
 
-      - name: Package AnyKernel3
+          # Cari nama defconfig yang tersedia di repo (blossom / dandelion / mt6765)
+          if [ -f "arch/arm64/configs/blossom_defconfig" ]; then
+            DEFCONFIG="blossom_defconfig"
+          elif [ -f "arch/arm64/configs/dandelion_defconfig" ]; then
+            DEFCONFIG="dandelion_defconfig"
+          elif [ -f "arch/arm64/configs/vendor/blossom_defconfig" ]; then
+            DEFCONFIG="vendor/blossom_defconfig"
+          else
+            echo "Defconfig tidak ditemukan! Daftar file di arch/arm64/configs/:"
+            ls -la arch/arm64/configs/
+            exit 1
+          fi
+
+          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
+          echo "Menggunakan defconfig: $DEFCONFIG"
+
+          # Terapkan patch Wi-Fi injection & HID gadget (abaikan jika sudah ter-patch)
+          patch -p1 --forward < ../nh-builder/patches/4.19/add-wifi-injection-4.14.patch || true
+          patch -p1 --forward < ../nh-builder/patches/4.19/add-hid-gadget-4.19.patch || true
+
+          # Generate .config awal
+          make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
+
+          # Aktifkan fitur wajib Kali NetHunter melalui scripts/config
+          ./scripts/config --file out/.config \
+            -e SYSVIPC \
+            -e MODULES \
+            -e MODULE_UNLOAD \
+            -e CFG80211 \
+            -e CFG80211_WEXT \
+            -e MAC80211 \
+            -e MAC80211_MESH \
+            -e USB_GADGET \
+            -e USB_CONFIGFS \
+            -e USB_CONFIGFS_F_HID \
+            -e USB_G_HID \
+            -e HID_GENERIC \
+            -e USB_HIDDEV \
+            -m ATH9K_HTC \
+            -m RT2800USB \
+            -m RTL8187 \
+            -m RTL8XXXU \
+            -m BT_HCIBTUSB \
+            -m MEDIA_SUPPORT \
+            -m MEDIA_SDR_SUPPORT
+
+          make -j$(nproc) O=out ARCH=arm64 olddefconfig
+
+      - name: Compile Kernel
+        env:
+          ARCH: arm64
+          SUBARCH: arm64
+        run: |
+          cd kernel
+          export PATH="$(pwd)/../clang/bin:$PATH"
+
+          make -j$(nproc) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip
+
+      - name: Package with AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
-          cp kernel/out/arch/arm64/boot/Image.gz-dtb anykernel/
-          cd anykernel
-          zip -r9 ../NetHunter-dandelion.zip * -x .git README.md
 
-      - name: Upload kernel zip
+          # Sesuaikan konfigurasi anykernel.sh untuk Redmi 9A (dandelion / blossom)
+          sed -i 's/device.name1=.*/device.name1=dandelion/' anykernel/anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=blossom/' anykernel/anykernel.sh
+          sed -i 's|block=.*|block=/dev/block/by-name/boot;|' anykernel/anykernel.sh
+
+          # Salin hasil build kernel (Image.gz-dtb atau Image.gz + dtb)
+          BOOT_DIR="kernel/out/arch/arm64/boot"
+          if [ -f "$BOOT_DIR/Image.gz-dtb" ]; then
+            cp "$BOOT_DIR/Image.gz-dtb" anykernel/
+          elif [ -f "$BOOT_DIR/Image.gz" ]; then
+            cp "$BOOT_DIR/Image.gz" anykernel/
+            [ -f "$BOOT_DIR/dtb.img" ] && cp "$BOOT_DIR/dtb.img" anykernel/
+            [ -f "$BOOT_DIR/dtbo.img" ] && cp "$BOOT_DIR/dtbo.img" anykernel/
+          else
+            echo "File kernel image tidak ditemukan!"
+            ls -la "$BOOT_DIR"
+            exit 1
+          fi
+
+          cd anykernel
+          zip -r9 ../NetHunter-Kernel-Redmi9A-4.19.zip * -x .git README.md *placeholder
+
+      - name: Upload NetHunter Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NetHunter-Kernel-Redmi9A
-          path: NetHunter-dandelion.zip
+          name: NetHunter-Kernel-Redmi9A-4.19
+          path: NetHunter-Kernel-Redmi9A-4.19.zip
+          retention-days: 14
