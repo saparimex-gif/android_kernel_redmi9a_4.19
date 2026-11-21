@@ -3,7 +3,9 @@ name: Build NetHunter Kernel Redmi 9A (4.19)
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
@@ -40,13 +42,11 @@ jobs:
         run: |
           cd kernel
 
-          # Bersihkan flag compiler spesifik jika ada yang tidak didukung
           sed -i 's/-mllvm -inline-instr-cost=[0-9]*//g' Makefile
           sed -i 's/-mllvm -inline-call-penalty=[0-9]*//g' Makefile
           sed -i 's/-inline-instr-cost=[0-9]*//g' Makefile
           sed -i 's/-inline-call-penalty=[0-9]*//g' Makefile
 
-          # Cari file defconfig
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
             echo "Defconfig spesifik tidak ditemukan!"
@@ -58,14 +58,10 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
-          # Terapkan patch NetHunter (Wi-Fi injection & HID gadget)
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
 
-          # Jika net/mac80211/tx.c.rej muncul, terapkan blok ieee80211_set_qos_hdr secara aman lalu bersihkan sisa .rej
           if [ -f "net/mac80211/tx.c.rej" ]; then
-            echo "=== Isi net/mac80211/tx.c.rej ==="
-            cat net/mac80211/tx.c.rej
             python3 - <<'PY'
 from pathlib import Path
 
@@ -85,10 +81,8 @@ PY
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
 
-          # Generate .config awal
           make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
-          # Aktifkan fitur Kali NetHunter
           ./scripts/config --file out/.config \
             -e SYSVIPC \
             -e MODULES \
