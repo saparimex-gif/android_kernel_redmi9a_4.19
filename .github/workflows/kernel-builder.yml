@@ -41,6 +41,18 @@ jobs:
             fi
           done
 
+      - name: Inspect deadline_init & Initcall Level 6
+        run: |
+          cd kernel
+          echo "=== 1. Cari semua kemunculan kata deadline_init ==="
+          grep -rn --exclude-dir=.git "deadline_init" . || true
+
+          echo "=== 2. Cari semua pemanggilan late_initcall / late_initcall_sync di kernel/sched ==="
+          grep -rnE "late_initcall(_sync)?[[:space:]]*\(" kernel/sched/ || true
+
+          echo "=== 3. Cek isi akhir kernel/sched/deadline.c ==="
+          tail -n 45 kernel/sched/deadline.c || true
+
       - name: Clone AOSP Clang Toolchain
         run: |
           for i in 1 2 3 4 5; do
@@ -88,26 +100,6 @@ jobs:
           if [ ! -f "drivers/android/lowmemorykiller.c" ] && [ -f "drivers/android/Makefile" ]; then
             sed -i '/lowmemorykiller\.o/d' drivers/android/Makefile
           fi
-
-          # Cari & deduplikasi semua makro initcall yang mendaftarkan deadline_init
-          echo "=== Baris initcall deadline_init sebelum deduplikasi ==="
-          grep -rn "deadline_init" kernel/ init/ drivers/ 2>/dev/null || true
-
-          for f in $(grep -rl "deadline_init" kernel/ init/ drivers/ 2>/dev/null || true); do
-            awk '
-              /initcall.*\(.*deadline_init.*\)/ {
-                c++
-                if (c > 1) {
-                  print "/* REMOVED DUPLICATE INITCALL: " $0 " */"
-                  next
-                }
-              }
-              { print }
-            ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-          done
-
-          echo "=== Baris initcall deadline_init setelah deduplikasi ==="
-          grep -rn "deadline_init" kernel/ init/ drivers/ 2>/dev/null || true
 
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
