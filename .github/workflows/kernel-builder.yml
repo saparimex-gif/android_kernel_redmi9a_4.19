@@ -1,4 +1,4 @@
-name: Build Kernel Redmi 9A - BT Arsenal Config (4.19)
+name: Build Kernel Redmi 9A - Full USB & BT Arsenal (4.19)
 
 on:
   workflow_dispatch:
@@ -56,7 +56,7 @@ jobs:
             fi
           done
 
-      - name: Prepare Defconfig with Bluetooth Arsenal Support
+      - name: Prepare Defconfig with Full USB Arsenal & BT Support
         env:
           ARCH: arm64
           SUBARCH: arm64
@@ -101,7 +101,19 @@ jobs:
             -e BT_HCIBTUSB_RTL \
             -e BT_HCIUART \
             -e BT_HCIUART_H4 \
-            -e BT_HCIVHCI
+            -e BT_HCIVHCI \
+            -e USB_GADGET \
+            -e USB_CONFIGFS \
+            -e USB_CONFIGFS_F_HID \
+            -e USB_CONFIGFS_RNDIS \
+            -e USB_CONFIGFS_ECM \
+            -e USB_CONFIGFS_NCM \
+            -e USB_CONFIGFS_MASS_STORAGE \
+            -e USB_CONFIGFS_F_FS \
+            -e USB_CONFIGFS_SERIAL \
+            -e USB_CONFIGFS_ACM \
+            -e IKCONFIG \
+            -e IKCONFIG_PROC
 
           sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
           sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
@@ -110,8 +122,8 @@ jobs:
           sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
           sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
 
-          echo "=== Verifikasi Config Bluetooth ==="
-          grep -E "^(CONFIG_BT|CONFIG_BT_BREDR|CONFIG_BT_LE|CONFIG_BT_RFCOMM|CONFIG_BT_BNEP|CONFIG_BT_HIDP|CONFIG_BT_HCIBTUSB|CONFIG_BT_HCIUART|CONFIG_BT_HCIVHCI)=" out/.config || true
+          echo "=== Verifikasi Config USB Gadget & Bluetooth ==="
+          grep -E "^(CONFIG_USB_GADGET|CONFIG_USB_CONFIGFS|CONFIG_USB_CONFIGFS_F_HID|CONFIG_USB_CONFIGFS_RNDIS|CONFIG_USB_CONFIGFS_ECM|CONFIG_USB_CONFIGFS_NCM|CONFIG_USB_CONFIGFS_MASS_STORAGE|CONFIG_USB_CONFIGFS_F_FS|CONFIG_USB_CONFIGFS_SERIAL|CONFIG_USB_CONFIGFS_ACM|CONFIG_BT_HCIBTUSB)=" out/.config || true
 
       - name: Compile Kernel
         env:
@@ -174,11 +186,11 @@ jobs:
           fi
 
           cd anykernel
-          zip -r9 "$GITHUB_WORKSPACE/BT-Arsenal-Kernel-Redmi9A-4.19.zip" * -x .git README.md *placeholder
+          zip -r9 "$GITHUB_WORKSPACE/NetHunter-USB-BT-Kernel-Redmi9A-4.19.zip" * -x .git README.md *placeholder
 
-      - name: Upload BT Arsenal Kernel Artifact
+      - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BT-Arsenal-Kernel-Redmi9A
-          path: BT-Arsenal-Kernel-Redmi9A-4.19.zip
+          name: NetHunter-USB-BT-Kernel-Redmi9A
+          path: NetHunter-USB-BT-Kernel-Redmi9A-4.19.zip
           retention-days: 14
