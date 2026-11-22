@@ -186,7 +186,10 @@ jobs:
 
           sed -i 's/device.name1=.*/device.name1=dandelion/' anykernel/anykernel.sh
           sed -i 's/device.name2=.*/device.name2=blossom/' anykernel/anykernel.sh
-          sed -i 's|block=.*|block=/dev/block/by-name/boot;|' anykernel/anykernel.sh
+          sed -i 's/device.name3=.*/device.name3=/' anykernel/anykernel.sh
+          sed -i 's/device.name4=.*/device.name4=/' anykernel/anykernel.sh
+          sed -i 's|block=.*|block=auto;|' anykernel/anykernel.sh
+          grep -E "^(device\.name|block=)" anykernel/anykernel.sh || true
 
           BOOT_DIR="$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot"
           if [ -f "$BOOT_DIR/Image.gz-dtb" ]; then
