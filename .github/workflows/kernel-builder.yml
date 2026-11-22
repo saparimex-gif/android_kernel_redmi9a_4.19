@@ -1,4 +1,4 @@
-name: Build & Inspect Kernel Redmi 9A (4.19)
+name: Build Kernel Redmi 9A - BT Arsenal Config (4.19)
 
 on:
   workflow_dispatch:
@@ -41,12 +41,6 @@ jobs:
             fi
           done
 
-          cd kernel
-          echo "=== Commit & Branch Info ==="
-          git log -n 3 --oneline || true
-          echo "=== Defconfig Kandidat ==="
-          find arch/arm64/configs -type f \( -name "*blossom*" -o -name "*dandelion*" -o -name "*mt6765*" \) | sort
-
       - name: Clone AOSP Clang Toolchain
         run: |
           for i in 1 2 3 4 5; do
@@ -62,7 +56,7 @@ jobs:
             fi
           done
 
-      - name: Prepare Defconfig Minimal
+      - name: Prepare Defconfig with Bluetooth Arsenal Support
         env:
           ARCH: arm64
           SUBARCH: arm64
@@ -94,7 +88,20 @@ jobs:
             -d ANDROID_LOW_MEMORY_KILLER \
             -d CONFIG_ANDROID_LOW_MEMORY_KILLER \
             -d IOSCHED_DEADLINE \
-            -d CONFIG_IOSCHED_DEADLINE
+            -d CONFIG_IOSCHED_DEADLINE \
+            -e BT \
+            -e BT_BREDR \
+            -e BT_LE \
+            -e BT_RFCOMM \
+            -e BT_RFCOMM_TTY \
+            -e BT_BNEP \
+            -e BT_HIDP \
+            -e BT_HCIBTUSB \
+            -e BT_HCIBTUSB_BCM \
+            -e BT_HCIBTUSB_RTL \
+            -e BT_HCIUART \
+            -e BT_HCIUART_H4 \
+            -e BT_HCIVHCI
 
           sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
           sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
@@ -103,7 +110,10 @@ jobs:
           sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
           sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
 
-      - name: Compile Kernel & Inspect Boot Outputs
+          echo "=== Verifikasi Config Bluetooth ==="
+          grep -E "^(CONFIG_BT|CONFIG_BT_BREDR|CONFIG_BT_LE|CONFIG_BT_RFCOMM|CONFIG_BT_BNEP|CONFIG_BT_HIDP|CONFIG_BT_HCIBTUSB|CONFIG_BT_HCIUART|CONFIG_BT_HCIVHCI)=" out/.config || true
+
+      - name: Compile Kernel
         env:
           ARCH: arm64
           SUBARCH: arm64
@@ -136,7 +146,7 @@ jobs:
           echo "=== Isi arch/arm64/boot ==="
           ls -lh out/arch/arm64/boot/ | grep -E "Image|dtb|dtbo" || ls -lh out/arch/arm64/boot/
 
-      - name: Package Minimal Kernel with AnyKernel3
+      - name: Package Kernel with AnyKernel3
         run: |
           cd "$GITHUB_WORKSPACE"
           for i in 1 2 3; do
@@ -164,11 +174,11 @@ jobs:
           fi
 
           cd anykernel
-          zip -r9 "$GITHUB_WORKSPACE/Minimal-Kernel-Redmi9A-4.19.zip" * -x .git README.md *placeholder
+          zip -r9 "$GITHUB_WORKSPACE/BT-Arsenal-Kernel-Redmi9A-4.19.zip" * -x .git README.md *placeholder
 
-      - name: Upload Minimal Kernel Artifact
+      - name: Upload BT Arsenal Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Minimal-Kernel-Redmi9A
-          path: Minimal-Kernel-Redmi9A-4.19.zip
+          name: BT-Arsenal-Kernel-Redmi9A
+          path: BT-Arsenal-Kernel-Redmi9A-4.19.zip
           retention-days: 14
