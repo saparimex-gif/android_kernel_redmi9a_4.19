@@ -1,4 +1,4 @@
-name: Build NetHunter Kernel Redmi 9A (4.19)
+name: Build & Inspect Kernel Redmi 9A (4.19)
 
 on:
   workflow_dispatch:
@@ -41,6 +41,12 @@ jobs:
             fi
           done
 
+          cd kernel
+          echo "=== Commit & Branch Info ==="
+          git log -n 3 --oneline || true
+          echo "=== Defconfig Kandidat ==="
+          find arch/arm64/configs -type f \( -name "*blossom*" -o -name "*dandelion*" -o -name "*mt6765*" \) | sort
+
       - name: Clone AOSP Clang Toolchain
         run: |
           for i in 1 2 3 4 5; do
@@ -56,34 +62,12 @@ jobs:
             fi
           done
 
-      - name: Clone Kali NetHunter Kernel Builder (Patches)
-        run: |
-          for i in 1 2 3 4 5; do
-            echo "Cloning kali-nethunter-kernel dari GitLab (percobaan ke-$i)..."
-            rm -rf nh-builder
-            if git clone --depth=1 --single-branch https://gitlab.com/kalilinux/nethunter/build-scripts/kali-nethunter-kernel.git nh-builder; then
-              break
-            fi
-            sleep 5
-            if [ "$i" -eq 5 ]; then
-              echo "Gagal clone kali-nethunter-kernel dari GitLab setelah 5 percobaan."
-              exit 1
-            fi
-          done
-
-      - name: Detect Defconfig, Patch & Apply NetHunter Configs
+      - name: Prepare Defconfig Minimal
         env:
           ARCH: arm64
           SUBARCH: arm64
         run: |
           cd kernel
-
-          if [ -f "ipc/msg.c" ]; then
-            sed -i '1285,1305s/return -EINVAL;/return;/g; 1285,1305s/\breturn err;/return;/g' ipc/msg.c
-          fi
-          if [ -f "ipc/sem.c" ]; then
-            sed -i '235,255s/return 0;/return;/g' ipc/sem.c
-          fi
 
           if [ ! -f "drivers/android/lowmemorykiller.c" ] && [ -f "drivers/android/Makefile" ]; then
             sed -i '/lowmemorykiller\.o/d' drivers/android/Makefile
@@ -100,12 +84,6 @@ jobs:
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
 
-          patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
-          patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
-
-          find . -name "*.rej" -delete
-          find . -name "*.orig" -delete
-
           yes "n" | make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
           ./scripts/config --file out/.config \
@@ -116,26 +94,7 @@ jobs:
             -d ANDROID_LOW_MEMORY_KILLER \
             -d CONFIG_ANDROID_LOW_MEMORY_KILLER \
             -d IOSCHED_DEADLINE \
-            -d CONFIG_IOSCHED_DEADLINE \
-            -e MODULES \
-            -e MODULE_UNLOAD \
-            -e CFG80211 \
-            -e CFG80211_WEXT \
-            -e MAC80211 \
-            -e MAC80211_MESH \
-            -e USB_GADGET \
-            -e USB_CONFIGFS \
-            -e USB_CONFIGFS_F_HID \
-            -e USB_G_HID \
-            -e HID_GENERIC \
-            -e USB_HIDDEV \
-            -m ATH9K_HTC \
-            -m RT2800USB \
-            -m RTL8187 \
-            -m RTL8XXXU \
-            -m BT_HCIBTUSB \
-            -m MEDIA_SUPPORT \
-            -m MEDIA_SDR_SUPPORT
+            -d CONFIG_IOSCHED_DEADLINE
 
           sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
           sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
@@ -144,7 +103,7 @@ jobs:
           sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
           sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
 
-      - name: Compile Kernel
+      - name: Compile Kernel & Inspect Boot Outputs
         env:
           ARCH: arm64
           SUBARCH: arm64
@@ -163,7 +122,6 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             LLVM=1 \
             LLVM_IAS=1 2>&1 | tee build.log || {
-              echo "=== RE-RUN SINGLE THREAD UNTUK MENANGKAP ERROR ASLI ==="
               make -j1 O=out \
                 ARCH=arm64 \
                 CC=clang \
@@ -175,7 +133,10 @@ jobs:
               exit 1
             }
 
-      - name: Package with AnyKernel3
+          echo "=== Isi arch/arm64/boot ==="
+          ls -lh out/arch/arm64/boot/ | grep -E "Image|dtb|dtbo" || ls -lh out/arch/arm64/boot/
+
+      - name: Package Minimal Kernel with AnyKernel3
         run: |
           cd "$GITHUB_WORKSPACE"
           for i in 1 2 3; do
@@ -184,12 +145,11 @@ jobs:
             sleep 5
           done
 
-          sed -i 's/device.name1=.*/device.name1=dandelion/' anykernel/anykernel.sh
-          sed -i 's/device.name2=.*/device.name2=blossom/' anykernel/anykernel.sh
-          sed -i 's/device.name3=.*/device.name3=/' anykernel/anykernel.sh
-          sed -i 's/device.name4=.*/device.name4=/' anykernel/anykernel.sh
-          sed -i 's|block=.*|block=auto;|' anykernel/anykernel.sh
-          grep -E "^(device\.name|block=)" anykernel/anykernel.sh || true
+          sed -i 's/device\.name1=.*/device.name1=dandelion/' anykernel/anykernel.sh
+          sed -i 's/device\.name2=.*/device.name2=blossom/' anykernel/anykernel.sh
+          sed -i 's/device\.name3=.*/device.name3=/' anykernel/anykernel.sh
+          sed -i 's/device\.name4=.*/device.name4=/' anykernel/anykernel.sh
+          sed -i 's|^[[:space:]]*BLOCK=.*|BLOCK=boot;|' anykernel/anykernel.sh
 
           BOOT_DIR="$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot"
           if [ -f "$BOOT_DIR/Image.gz-dtb" ]; then
@@ -200,16 +160,15 @@ jobs:
             [ -f "$BOOT_DIR/dtbo.img" ] && cp "$BOOT_DIR/dtbo.img" anykernel/
           else
             echo "File kernel image tidak ditemukan!"
-            ls -la "$BOOT_DIR"
             exit 1
           fi
 
           cd anykernel
-          zip -r9 "$GITHUB_WORKSPACE/NetHunter-Kernel-Redmi9A-4.19.zip" * -x .git README.md *placeholder
+          zip -r9 "$GITHUB_WORKSPACE/Minimal-Kernel-Redmi9A-4.19.zip" * -x .git README.md *placeholder
 
-      - name: Upload NetHunter Kernel Artifact
+      - name: Upload Minimal Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NetHunter-Kernel-Redmi9A
-          path: NetHunter-Kernel-Redmi9A-4.19.zip
+          name: Minimal-Kernel-Redmi9A
+          path: Minimal-Kernel-Redmi9A-4.19.zip
           retention-days: 14
