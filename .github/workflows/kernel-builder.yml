@@ -89,26 +89,23 @@ jobs:
             sed -i '/lowmemorykiller\.o/d' drivers/android/Makefile
           fi
 
-          # Cari & bersihkan duplikasi initcall deadline_init (__initcall_deadline_init6)
-          echo "=== Pencarian deadline_init di source ==="
-          grep -rn "deadline_init" kernel/ init/ include/ 2>/dev/null || true
+          # Cari semua referensi deadline_init di seluruh source tree
+          echo "=== Semua referensi deadline_init di source ==="
+          grep -rn "deadline_init" kernel/ init/ include/ drivers/ 2>/dev/null || true
 
-          if [ -f "kernel/sched/deadline.c" ]; then
-            COUNT_DEADLINE_INIT=$(grep -cE "^[[:space:]]*(device_initcall|late_initcall|core_initcall|postcore_initcall|arch_initcall|subsys_initcall|fs_initcall|rootfs_initcall|__initcall)\(deadline_init\)" kernel/sched/deadline.c || true)
-            echo "Jumlah initcall deadline_init di kernel/sched/deadline.c: $COUNT_DEADLINE_INIT"
-            if [ "$COUNT_DEADLINE_INIT" -gt 1 ]; then
-              awk '
-                /^[[:space:]]*(device_initcall|late_initcall|core_initcall|postcore_initcall|arch_initcall|subsys_initcall|fs_initcall|rootfs_initcall|__initcall)\(deadline_init\)/ {
-                  seen++
-                  if (seen > 1) {
-                    print "/* DUPLICATE REMOVED: " $0 " */"
-                    next
-                  }
+          # Deduplikasi initcall deadline_init di seluruh file yang memilikinya
+          for f in $(grep -rl "deadline_init" kernel/ init/ drivers/ 2>/dev/null || true); do
+            awk '
+              /^[[:space:]]*(device_initcall|late_initcall|core_initcall|postcore_initcall|arch_initcall|subsys_initcall|fs_initcall|rootfs_initcall|__initcall)[[:space:]]*\([[:space:]]*deadline_init[[:space:]]*\)/ {
+                seen++
+                if (seen > 1) {
+                  print "/* DEDUP INITCALL: " $0 " */"
+                  next
                 }
-                { print }
-              ' kernel/sched/deadline.c > kernel/sched/deadline.c.tmp && mv kernel/sched/deadline.c.tmp kernel/sched/deadline.c
-            fi
-          fi
+              }
+              { print }
+            ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          done
 
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
@@ -124,10 +121,15 @@ jobs:
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-wifi-injection-4.14.patch" || true
           patch -p1 --forward < "$GITHUB_WORKSPACE/nh-builder/patches/4.19/add-hid-gadget-4.19.patch" || true
 
+          if [ -f "net/mac80211/tx.c.rej" ]; then
+            echo "=== Isi net/mac80211/tx.c.rej ==="
+            cat net/mac80211/tx.c.rej
+          fi
+
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
 
-          make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
+          yes "n" | make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
 
           ./scripts/config --file out/.config \
             -d LTO_CLANG \
