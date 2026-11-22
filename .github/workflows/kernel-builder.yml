@@ -85,11 +85,30 @@ jobs:
             sed -i '235,255s/return 0;/return;/g' ipc/sem.c
           fi
 
-          # Jika lowmemorykiller.c tidak ada, amankan referensi lowmemorykiller.o di drivers/android/Makefile
           if [ ! -f "drivers/android/lowmemorykiller.c" ] && [ -f "drivers/android/Makefile" ]; then
             sed -i '/lowmemorykiller\.o/d' drivers/android/Makefile
           fi
-          grep -rn "select ANDROID_LOW_MEMORY_KILLER" drivers/ arch/ 2>/dev/null || true
+
+          # Cari & bersihkan duplikasi initcall deadline_init (__initcall_deadline_init6)
+          echo "=== Pencarian deadline_init di source ==="
+          grep -rn "deadline_init" kernel/ init/ include/ 2>/dev/null || true
+
+          if [ -f "kernel/sched/deadline.c" ]; then
+            COUNT_DEADLINE_INIT=$(grep -cE "^[[:space:]]*(device_initcall|late_initcall|core_initcall|postcore_initcall|arch_initcall|subsys_initcall|fs_initcall|rootfs_initcall|__initcall)\(deadline_init\)" kernel/sched/deadline.c || true)
+            echo "Jumlah initcall deadline_init di kernel/sched/deadline.c: $COUNT_DEADLINE_INIT"
+            if [ "$COUNT_DEADLINE_INIT" -gt 1 ]; then
+              awk '
+                /^[[:space:]]*(device_initcall|late_initcall|core_initcall|postcore_initcall|arch_initcall|subsys_initcall|fs_initcall|rootfs_initcall|__initcall)\(deadline_init\)/ {
+                  seen++
+                  if (seen > 1) {
+                    print "/* DUPLICATE REMOVED: " $0 " */"
+                    next
+                  }
+                }
+                { print }
+              ' kernel/sched/deadline.c > kernel/sched/deadline.c.tmp && mv kernel/sched/deadline.c.tmp kernel/sched/deadline.c
+            fi
+          fi
 
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
           if [ -z "$DEFCONFIG_PATH" ]; then
