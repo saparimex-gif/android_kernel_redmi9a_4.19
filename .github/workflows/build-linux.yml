@@ -10,7 +10,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -18,113 +17,20 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache cpio curl flex git gzip \
-            libelf-dev libssl-dev lld llvm python3 python-is-python3 \
-            unzip wget zlib1g-dev zstd
+          sudo apt-get install -y bc bison build-essential ccache cpio curl flex git gzip libelf-dev libssl-dev lld llvm python3 python-is-python3 unzip wget zip zlib1g-dev zstd
 
-      - name: Build Initramfs for Pure Linux
+      - name: Build Initramfs
         run: |
-          if [ -f "build_initramfs.sh" ]; then
-            chmod +x build_initramfs.sh
-            ./build_initramfs.sh
-          else
-            WORK_DIR="$(pwd)"
-            ROOTFS_DIR="$WORK_DIR/out_rootfs"
-            rm -rf "$ROOTFS_DIR" "$WORK_DIR/initramfs.cpio.gz"
-            mkdir -p "$ROOTFS_DIR"/{bin,sbin,etc,proc,sys,dev,tmp,mnt/root}
+          chmod +x build_initramfs.sh
+          ./build_initramfs.sh
 
-            curl -fsSL "https://raw.githubusercontent.com/EXALAB/Busybox-static/main/busybox_arm64" -o "$ROOTFS_DIR/bin/busybox"
-            chmod +x "$ROOTFS_DIR/bin/busybox"
-
-            if [ -f "$WORK_DIR/rootfs/init" ]; then
-              cp "$WORK_DIR/rootfs/init" "$ROOTFS_DIR/init"
-            else
-              cat <<'EOF' > "$ROOTFS_DIR/init"
-#!/bin/sh
-/bin/busybox mount -t proc proc /proc
-/bin/busybox mount -t sysfs sysfs /sys
-/bin/busybox mount -t devtmpfs devtmpfs /dev
-/bin/busybox --install -s /bin
-
-echo "==========================================" > /dev/kmsg
-echo "  PURE LINUX BOOTED ON REDMI 9A! (PID 1)  " > /dev/kmsg
-echo "==========================================" > /dev/kmsg
-
-mkdir -p /sys/kernel/config/usb_gadget/g1
-cd /sys/kernel/config/usb_gadget/g1 || exit 1
-echo 0x18d1 > idVendor
-echo 0x4ee7 > idProduct
-mkdir -p strings/0x409
-echo "0123456789" > strings/0x409/serialnumber
-echo "DandelionLinux" > strings/0x409/manufacturer
-echo "PureLinux-USB" > strings/0x409/product
-
-mkdir -p configs/c.1/strings/0x409
-echo "RNDIS" > configs/c.1/strings/0x409/configuration
-mkdir -p functions/rndis.usb0
-ln -s functions/rndis.usb0 configs/c.1/
-
-UDC_DEV=$(ls /sys/class/udc 2>/dev/null | head -n 1)
-if [ -n "$UDC_DEV" ]; then
-    echo "$UDC_DEV" > UDC
-fi
-
-sleep 1
-ifconfig lo 127.0.0.1 up
-ifconfig usb0 192.168.7.2 netmask 255.255.255.0 up
-telnetd -l /bin/sh -p 23 &
-
-while true; do
-    setsid cttyhack /bin/sh
-    sleep 1
-done
-EOF
-            fi
-            chmod +x "$ROOTFS_DIR/init"
-
-            (
-              cd "$ROOTFS_DIR"
-              find . -print0 | cpio --null -ov --format=newc | gzip -9 > "$WORK_DIR/initramfs.cpio.gz"
-            )
-          fi
-          ls -lh initramfs.cpio.gz
-
-      - name: Configure Git for Large Clones & Retries
+      - name: Clone Kernel Source 4.19
         run: |
-          git config --global http.version HTTP/1.1
-          git config --global http.postBuffer 524288000
-          git config --global core.compression 0
-
-      - name: Clone Kernel Source 4.19 (blossom / Redmi 9A)
-        run: |
-          for i in 1 2 3 4 5; do
-            echo "Cloning kernel source (percobaan ke-$i)..."
-            rm -rf kernel
-            if git clone --depth=1 --single-branch https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom.git kernel; then
-              break
-            fi
-            sleep 5
-            if [ "$i" -eq 5 ]; then
-              echo "Gagal clone kernel source setelah 5 percobaan."
-              exit 1
-            fi
-          done
+          git clone --depth=1 --single-branch https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom.git kernel
 
       - name: Clone AOSP Clang Toolchain
         run: |
-          for i in 1 2 3 4 5; do
-            echo "Cloning toolchain_aosp_clang (percobaan ke-$i)..."
-            rm -rf clang
-            if git clone --depth=1 --single-branch https://github.com/IsHacker-kernel/toolchain_aosp_clang.git clang; then
-              break
-            fi
-            sleep 5
-            if [ "$i" -eq 5 ]; then
-              echo "Gagal clone toolchain_aosp_clang setelah 5 percobaan."
-              exit 1
-            fi
-          done
+          git clone --depth=1 --single-branch https://github.com/IsHacker-kernel/toolchain_aosp_clang.git clang
 
       - name: Prepare Defconfig for Pure Linux
         env:
@@ -132,62 +38,19 @@ EOF
           SUBARCH: arm64
         run: |
           cd kernel
-
           if [ ! -f "drivers/android/lowmemorykiller.c" ] && [ -f "drivers/android/Makefile" ]; then
             sed -i '/lowmemorykiller\.o/d' drivers/android/Makefile
           fi
-
           DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
-          if [ -z "$DEFCONFIG_PATH" ]; then
-            echo "Defconfig spesifik tidak ditemukan!"
-            find arch/arm64/configs -maxdepth 2 -type f
-            exit 1
-          fi
-
           DEFCONFIG=${DEFCONFIG_PATH#arch/arm64/configs/}
-          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
           echo "Menggunakan defconfig: $DEFCONFIG"
-
           yes "n" | make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
-
-          ./scripts/config --file out/.config \
-            -d LTO_CLANG \
-            -d CONFIG_LTO_CLANG \
-            -d RELR \
-            -d CONFIG_RELR \
-            -d ANDROID_LOW_MEMORY_KILLER \
-            -d CONFIG_ANDROID_LOW_MEMORY_KILLER \
-            -d IOSCHED_DEADLINE \
-            -d CONFIG_IOSCHED_DEADLINE \
-            -d SECURITY_SELINUX \
-            -d CONFIG_SECURITY_SELINUX \
-            -d ANDROID_PARANOID_NETWORK \
-            -d CONFIG_ANDROID_PARANOID_NETWORK \
-            -e DEVTMPFS \
-            -e DEVTMPFS_MOUNT \
-            -e VT \
-            -e VT_CONSOLE \
-            -e FRAMEBUFFER_CONSOLE \
-            -e USB_GADGET \
-            -e USB_CONFIGFS \
-            -e USB_CONFIGFS_RNDIS \
-            -e IKCONFIG \
-            -e IKCONFIG_PROC
-
+          ./scripts/config --file out/.config -d LTO_CLANG -d CONFIG_LTO_CLANG -d RELR -d CONFIG_RELR -d ANDROID_LOW_MEMORY_KILLER -d CONFIG_ANDROID_LOW_MEMORY_KILLER -d IOSCHED_DEADLINE -d CONFIG_IOSCHED_DEADLINE -d SECURITY_SELINUX -d CONFIG_SECURITY_SELINUX -d ANDROID_PARANOID_NETWORK -d CONFIG_ANDROID_PARANOID_NETWORK -e DEVTMPFS -e DEVTMPFS_MOUNT -e VT -e VT_CONSOLE -e FRAMEBUFFER_CONSOLE -e USB_GADGET -e USB_CONFIGFS -e USB_CONFIGFS_RNDIS -e IKCONFIG -e IKCONFIG_PROC
           sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
           sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
           sed -i 's/^CONFIG_SECURITY_SELINUX=.*/# CONFIG_SECURITY_SELINUX is not set/' out/.config
           sed -i 's/^CONFIG_ANDROID_PARANOID_NETWORK=.*/# CONFIG_ANDROID_PARANOID_NETWORK is not set/' out/.config
-
           yes "n" | make -j$(nproc) O=out ARCH=arm64 olddefconfig || true
-
-          sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
-          sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
-          sed -i 's/^CONFIG_SECURITY_SELINUX=.*/# CONFIG_SECURITY_SELINUX is not set/' out/.config
-          sed -i 's/^CONFIG_ANDROID_PARANOID_NETWORK=.*/# CONFIG_ANDROID_PARANOID_NETWORK is not set/' out/.config
-
-          echo "=== Verifikasi Config Pure Linux ==="
-          grep -E "^(# )?CONFIG_(DEVTMPFS|DEVTMPFS_MOUNT|VT|VT_CONSOLE|FRAMEBUFFER_CONSOLE|SECURITY_SELINUX|ANDROID_PARANOID_NETWORK|USB_GADGET|USB_CONFIGFS|USB_CONFIGFS_RNDIS)[ =]" out/.config || true
 
       - name: Compile Kernel for Pure Linux
         env:
@@ -197,36 +60,12 @@ EOF
           cd kernel
           CLANG_BIN=$(find "$GITHUB_WORKSPACE/clang" -maxdepth 4 -type f -name "clang" | head -n 1 | xargs dirname)
           export PATH="$CLANG_BIN:$PATH"
-          echo "Menggunakan Clang dari: $CLANG_BIN"
+          make -j$(nproc) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1
 
-          set -o pipefail
-          make -j$(nproc) O=out \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            LLVM=1 \
-            LLVM_IAS=1 2>&1 | tee build.log || {
-              make -j1 O=out \
-                ARCH=arm64 \
-                CC=clang \
-                CLANG_TRIPLE=aarch64-linux-gnu- \
-                CROSS_COMPILE=aarch64-linux-gnu- \
-                CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-                LLVM=1 \
-                LLVM_IAS=1 2>&1 | tail -n 80 || true
-              exit 1
-            }
-
-          echo "=== Isi arch/arm64/boot ==="
-          ls -lh out/arch/arm64/boot/ | grep -E "Image|dtb|dtbo" || ls -lh out/arch/arm64/boot/
-
-      - name: Collect Stage 1 Artifacts
+      - name: Collect and Upload Artifacts
         run: |
           mkdir -p "$GITHUB_WORKSPACE/stage1_out"
           BOOT_DIR="$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot"
-
           if [ -f "$BOOT_DIR/Image.gz-dtb" ]; then
             cp "$BOOT_DIR/Image.gz-dtb" "$GITHUB_WORKSPACE/stage1_out/Image.gz-dtb"
           elif [ -f "$BOOT_DIR/Image.gz" ] && [ -f "$BOOT_DIR/dtb.img" ]; then
@@ -237,11 +76,10 @@ EOF
             echo "File kernel image tidak ditemukan!"
             exit 1
           fi
-
           cp "$GITHUB_WORKSPACE/initramfs.cpio.gz" "$GITHUB_WORKSPACE/stage1_out/initramfs.cpio.gz"
           ls -lh "$GITHUB_WORKSPACE/stage1_out/"
 
-      - name: Upload Stage 1 Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: dandelion-pure-linux-stage1-4.19
