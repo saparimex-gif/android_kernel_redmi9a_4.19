@@ -70,13 +70,24 @@ jobs:
       - name: Build postmarketOS image
         run: |
           cd ~/pmbootstrap
-          ./pmbootstrap.py -y init --non-interactive \
-            --device xiaomi-dandelion \
-            --ui console \
-            --hostname redmi9a \
-            --user user \
-            --password 1234
-          ./pmbootstrap.py -y install
+          yes "" | ./pmbootstrap.py init || true
+          python3 - <<'PY'
+          import configparser, os
+
+          cfg_path = os.path.expanduser("~/.config/pmbootstrap.cfg")
+          cfg = configparser.ConfigParser()
+          if os.path.exists(cfg_path):
+              cfg.read(cfg_path)
+          if "pmbootstrap" not in cfg:
+              cfg["pmbootstrap"] = {}
+          cfg["pmbootstrap"]["device"] = "xiaomi-dandelion"
+          cfg["pmbootstrap"]["ui"] = "console"
+          cfg["pmbootstrap"]["hostname"] = "redmi9a"
+          cfg["pmbootstrap"]["user"] = "user"
+          with open(cfg_path, "w") as f:
+              cfg.write(f)
+          PY
+          ./pmbootstrap.py -y install --password 1234
           mkdir -p /tmp/pmos-out
           ./pmbootstrap.py export --symlink /tmp/pmos-out
           ls -lh /tmp/pmos-out
