@@ -17,7 +17,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
             bc bison flex libssl-dev libelf-dev cpio gzip wget curl python2 python3 git device-tree-compiler
-          # Arahkan command 'python' ke python2 khusus untuk skrip drvgen MediaTek
           sudo ln -sf /usr/bin/python2 /usr/bin/python
 
       - name: Build Initramfs & Custom Init
@@ -34,11 +33,9 @@ jobs:
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          
-          # Pakai defconfig bawaan dandelion sebagai dasar driver hardware MT6762G
+
           make HOSTCFLAGS="-fcommon" PYTHON=python2 dandelion_defconfig
-          
-          # Aktifkan fitur wajib Linux murni (devtmpfs, framebuffer console, USB Gadget RNDIS)
+
           ./scripts/config --enable CONFIG_DEVTMPFS
           ./scripts/config --enable CONFIG_DEVTMPFS_MOUNT
           ./scripts/config --enable CONFIG_VT
@@ -46,11 +43,10 @@ jobs:
           ./scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
           ./scripts/config --enable CONFIG_USB_CONFIGFS
           ./scripts/config --enable CONFIG_USB_CONFIGFS_RNDIS
-          
-          # Matikan fitur khusus Android yang tidak dipakai (SELinux & Android Paranoid Network)
+
           ./scripts/config --disable CONFIG_SECURITY_SELINUX
           ./scripts/config --disable CONFIG_ANDROID_PARANOID_NETWORK
-          
+
           make HOSTCFLAGS="-fcommon" PYTHON=python2 olddefconfig
 
       - name: Compile Kernel Image & DTB
@@ -58,7 +54,8 @@ jobs:
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHON=python2 Image.gz-dtb
+          KCFLAGS="-Wno-array-bounds -Wno-attribute-alias -Wno-packed-not-aligned -Wno-stringop-overflow -Wno-zero-length-bounds -Wno-address-of-packed-member -Wno-restrict -Wno-misleading-indentation -Wno-format-overflow"
+          make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHON=python2 KCFLAGS="$KCFLAGS" Image.gz-dtb
 
       - name: Upload Build Artifacts (Kernel + Initramfs)
         uses: actions/upload-artifact@v4
