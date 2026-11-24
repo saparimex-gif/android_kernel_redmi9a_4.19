@@ -70,11 +70,13 @@ jobs:
       - name: Build postmarketOS image
         run: |
           cd ~/pmbootstrap
-          ./pmbootstrap.py -y config device xiaomi-dandelion
-          ./pmbootstrap.py -y config ui console
-          ./pmbootstrap.py -y config hostname redmi9a
-          ./pmbootstrap.py -y config user user
-          ./pmbootstrap.py -y install --password 1234
+          ./pmbootstrap.py -y init --non-interactive \
+            --device xiaomi-dandelion \
+            --ui console \
+            --hostname redmi9a \
+            --user user \
+            --password 1234
+          ./pmbootstrap.py -y install
           mkdir -p /tmp/pmos-out
           ./pmbootstrap.py export --symlink /tmp/pmos-out
           ls -lh /tmp/pmos-out
