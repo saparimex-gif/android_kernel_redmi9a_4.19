@@ -1,89 +1,85 @@
-name: Build Pure Linux Stage 1 - Redmi 9A (4.19)
+name: Build postmarketOS for Redmi 9A (dandelion)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
+  build-pmos:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Build Dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache cpio curl flex git gzip libelf-dev libssl-dev lld llvm python3 python-is-python3 unzip wget zip zlib1g-dev zstd
+          sudo apt-get install -y git python3 openssl sudo udev kpartx qemu-user-static
 
-      - name: Build Initramfs
+      - name: Clone pmbootstrap and pmaports
         run: |
-          chmod +x build_initramfs.sh
-          ./build_initramfs.sh
+          git clone --depth=1 https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git ~/pmbootstrap
+          mkdir -p ~/.local/var/pmbootstrap/cache_git
+          git clone --depth=1 https://gitlab.postmarketos.org/postmarketOS/pmaports.git \
+            ~/.local/var/pmbootstrap/cache_git/pmaports
 
-      - name: Clone Kernel Source 4.19
+      - name: Create device-xiaomi-dandelion package
         run: |
-          git clone --depth=1 --single-branch https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom.git kernel
+          DEV_DIR="$HOME/.local/var/pmbootstrap/cache_git/pmaports/device/testing/device-xiaomi-dandelion"
+          mkdir -p "$DEV_DIR"
+          cat <<'EOF' > "$DEV_DIR/APKBUILD"
+          pkgname=device-xiaomi-dandelion
+          pkgver=0.1
+          pkgrel=0
+          pkgdesc="Xiaomi Redmi 9A (dandelion)"
+          arch="aarch64"
+          license="MIT"
+          depends="postmarketos-base mkbootimg"
+          makedepends="devicepkg-dev"
+          source=""
 
-      - name: Clone AOSP Clang Toolchain
+          build() {
+              devicepkg_build $startdir $pkgname
+          }
+
+          package() {
+              devicepkg_package $startdir $pkgname
+          }
+          EOF
+          cat <<'EOF' > "$DEV_DIR/deviceinfo"
+          deviceinfo_format_version="0"
+          deviceinfo_name="Xiaomi Redmi 9A"
+          deviceinfo_codename="dandelion"
+          deviceinfo_manufacturer="Xiaomi"
+          deviceinfo_arch="aarch64"
+          deviceinfo_chassis="handset"
+          deviceinfo_flash_methods="fastboot"
+          deviceinfo_bootimg_qcdt="false"
+          deviceinfo_bootimg_mtk_mkimage="false"
+          deviceinfo_generate_bootimg="true"
+          deviceinfo_header_version="2"
+          deviceinfo_kernel_cmdline="bootopt=64S3,32N2,64N2 androidboot.selinux=permissive"
+          deviceinfo_flash_pagesize="2048"
+          deviceinfo_flash_offset_base="0x40078000"
+          deviceinfo_flash_offset_kernel="0x00008000"
+          deviceinfo_flash_offset_ramdisk="0x07c08000"
+          deviceinfo_flash_offset_second="0x00f00000"
+          deviceinfo_flash_offset_tags="0x0bc08000"
+          EOF
+
+      - name: Build postmarketOS image
         run: |
-          git clone --depth=1 --single-branch https://github.com/IsHacker-kernel/toolchain_aosp_clang.git clang
+          cd ~/pmbootstrap
+          ./pmbootstrap.py -y config device xiaomi-dandelion
+          ./pmbootstrap.py -y config ui console
+          ./pmbootstrap.py -y config hostname redmi9a
+          ./pmbootstrap.py -y config user user
+          ./pmbootstrap.py -y install --password 1234
+          mkdir -p /tmp/pmos-out
+          ./pmbootstrap.py export --symlink /tmp/pmos-out
+          ls -lh /tmp/pmos-out
 
-      - name: Prepare Defconfig for Pure Linux
-        env:
-          ARCH: arm64
-          SUBARCH: arm64
-        run: |
-          cd kernel
-          if [ ! -f "drivers/android/lowmemorykiller.c" ] && [ -f "drivers/android/Makefile" ]; then
-            sed -i '/lowmemorykiller\.o/d' drivers/android/Makefile
-          fi
-          DEFCONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*blossom*defconfig" -o -name "*dandelion*defconfig" -o -name "*mt6765*defconfig" \) | head -n 1)
-          DEFCONFIG=${DEFCONFIG_PATH#arch/arm64/configs/}
-          echo "Menggunakan defconfig: $DEFCONFIG"
-          yes "n" | make -j$(nproc) O=out ARCH=arm64 "$DEFCONFIG"
-          ./scripts/config --file out/.config -d LTO_CLANG -d CONFIG_LTO_CLANG -d RELR -d CONFIG_RELR -d ANDROID_LOW_MEMORY_KILLER -d CONFIG_ANDROID_LOW_MEMORY_KILLER -d IOSCHED_DEADLINE -d CONFIG_IOSCHED_DEADLINE -d SECURITY_SELINUX -d CONFIG_SECURITY_SELINUX -d ANDROID_PARANOID_NETWORK -d CONFIG_ANDROID_PARANOID_NETWORK -e DEVTMPFS -e DEVTMPFS_MOUNT -e VT -e VT_CONSOLE -e FRAMEBUFFER_CONSOLE -e USB_GADGET -e USB_CONFIGFS -e USB_CONFIGFS_RNDIS -e IKCONFIG -e IKCONFIG_PROC
-          sed -i 's/^CONFIG_ANDROID_LOW_MEMORY_KILLER=.*/# CONFIG_ANDROID_LOW_MEMORY_KILLER is not set/' out/.config
-          sed -i 's/^CONFIG_IOSCHED_DEADLINE=.*/# CONFIG_IOSCHED_DEADLINE is not set/' out/.config
-          sed -i 's/^CONFIG_SECURITY_SELINUX=.*/# CONFIG_SECURITY_SELINUX is not set/' out/.config
-          sed -i 's/^CONFIG_ANDROID_PARANOID_NETWORK=.*/# CONFIG_ANDROID_PARANOID_NETWORK is not set/' out/.config
-          yes "n" | make -j$(nproc) O=out ARCH=arm64 olddefconfig || true
-
-      - name: Compile Kernel for Pure Linux
-        env:
-          ARCH: arm64
-          SUBARCH: arm64
-        run: |
-          cd kernel
-          CLANG_BIN=$(find "$GITHUB_WORKSPACE/clang" -maxdepth 4 -type f -name "clang" | head -n 1 | xargs dirname)
-          export PATH="$CLANG_BIN:$PATH"
-          make -j$(nproc) O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1
-
-      - name: Collect and Upload Artifacts
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/stage1_out"
-          BOOT_DIR="$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot"
-          if [ -f "$BOOT_DIR/Image.gz-dtb" ]; then
-            cp "$BOOT_DIR/Image.gz-dtb" "$GITHUB_WORKSPACE/stage1_out/Image.gz-dtb"
-          elif [ -f "$BOOT_DIR/Image.gz" ] && [ -f "$BOOT_DIR/dtb.img" ]; then
-            cat "$BOOT_DIR/Image.gz" "$BOOT_DIR/dtb.img" > "$GITHUB_WORKSPACE/stage1_out/Image.gz-dtb"
-          elif [ -f "$BOOT_DIR/Image.gz" ]; then
-            cp "$BOOT_DIR/Image.gz" "$GITHUB_WORKSPACE/stage1_out/Image.gz-dtb"
-          else
-            echo "File kernel image tidak ditemukan!"
-            exit 1
-          fi
-          cp "$GITHUB_WORKSPACE/initramfs.cpio.gz" "$GITHUB_WORKSPACE/stage1_out/initramfs.cpio.gz"
-          ls -lh "$GITHUB_WORKSPACE/stage1_out/"
-
-      - name: Upload Artifact
+      - name: Upload exported images
         uses: actions/upload-artifact@v4
         with:
-          name: dandelion-pure-linux-stage1-4.19
-          path: |
-            stage1_out/Image.gz-dtb
-            stage1_out/initramfs.cpio.gz
-          retention-days: 14
+          name: pmos-dandelion-images
+          path: /tmp/pmos-out/*
