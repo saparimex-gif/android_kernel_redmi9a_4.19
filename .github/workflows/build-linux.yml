@@ -16,7 +16,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            bc bison flex libssl-dev libelf-dev cpio gzip wget curl python3 git device-tree-compiler
+            bc bison flex libssl-dev libelf-dev cpio gzip wget curl python2 python3 git device-tree-compiler
+          # Arahkan command 'python' ke python2 khusus untuk skrip drvgen MediaTek
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
 
       - name: Build Initramfs & Custom Init
         run: |
@@ -34,7 +36,7 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           
           # Pakai defconfig bawaan dandelion sebagai dasar driver hardware MT6762G
-          make dandelion_defconfig
+          make HOSTCFLAGS="-fcommon" PYTHON=python2 dandelion_defconfig
           
           # Aktifkan fitur wajib Linux murni (devtmpfs, framebuffer console, USB Gadget RNDIS)
           ./scripts/config --enable CONFIG_DEVTMPFS
@@ -49,14 +51,14 @@ jobs:
           ./scripts/config --disable CONFIG_SECURITY_SELINUX
           ./scripts/config --disable CONFIG_ANDROID_PARANOID_NETWORK
           
-          make olddefconfig
+          make HOSTCFLAGS="-fcommon" PYTHON=python2 olddefconfig
 
       - name: Compile Kernel Image & DTB
         working-directory: kernel
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          make -j$(nproc) Image.gz-dtb
+          make -j$(nproc) HOSTCFLAGS="-fcommon" PYTHON=python2 Image.gz-dtb
 
       - name: Upload Build Artifacts (Kernel + Initramfs)
         uses: actions/upload-artifact@v4
