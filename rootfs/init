@@ -1,0 +1,45 @@
+#!/bin/sh
+
+# 1. Mount filesystem virtual wajib milik kernel Linux
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sysfs /sys
+/bin/busybox mount -t devtmpfs devtmpfs /dev
+
+# 2. Buat symlink semua perintah standar BusyBox ke /bin
+/bin/busybox --install -s /bin
+
+# 3. Cetak pesan ke konsol kernel (terbaca di pstore/ramoops & layar fbcon)
+echo "==========================================" > /dev/kmsg
+echo "  PURE LINUX BOOTED ON REDMI 9A! (PID 1)  " > /dev/kmsg
+echo "==========================================" > /dev/kmsg
+
+# 4. Aktifkan USB Gadget RNDIS (HP terdeteksi sebagai USB Ethernet)
+mkdir -p /sys/kernel/config/usb_gadget/g1
+cd /sys/kernel/config/usb_gadget/g1
+echo 0x18d1 > idVendor
+echo 0x4ee7 > idProduct
+mkdir -p strings/0x409
+echo "0123456789" > strings/0x409/serialnumber
+echo "DandelionLinux" > strings/0x409/manufacturer
+echo "PureLinux-USB" > strings/0x409/product
+
+mkdir -p configs/c.1/strings/0x409
+echo "RNDIS" > configs/c.1/strings/0x409/configuration
+mkdir -p functions/rndis.usb0
+ln -s functions/rndis.usb0 configs/c.1/
+
+# Kaitkan gadget ke UDC (USB Device Controller) pertama yang tersedia
+UDC_DEV=$(ls /sys/class/udc | head -n 1)
+echo "$UDC_DEV" > UDC
+
+# 5. Beri IP statis ke antarmuka USB & jalankan Telnet daemon untuk remote shell
+sleep 1
+ifconfig lo 127.0.0.1 up
+ifconfig usb0 192.168.7.2 netmask 255.255.255.0 up
+telnetd -l /bin/sh -p 23 &
+
+# 6. Buka shell interaktif di konsol utama & jaga agar PID 1 tidak pernah mati
+while true; do
+    setsid cttyhack /bin/sh
+    sleep 1
+done
